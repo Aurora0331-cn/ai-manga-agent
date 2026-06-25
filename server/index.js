@@ -1336,10 +1336,14 @@ ${skill.slice(0, 24000)}`
   const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = { modules: {}, markdown: content }; }
+  // 模型有时把 modules.xxx 返回成对象/数组而非字符串，String() 会得到 "[object Object]"。
+  // 这里只接受字符串，其余置空，后续统一从 markdown 重建，保证抽取到真正的提示词文本。
+  const rawMods = (parsed.modules && typeof parsed.modules === 'object') ? parsed.modules : {};
+  const asStr = (v) => (typeof v === 'string' ? v : '');
   let modules = {
-    characters: String(parsed.modules?.characters || ''),
-    scenes: String(parsed.modules?.scenes || ''),
-    props: String(parsed.modules?.props || '')
+    characters: asStr(rawMods.characters),
+    scenes: asStr(rawMods.scenes),
+    props: asStr(rawMods.props)
   };
   const markdown = String(parsed.markdown || content || composeAssetMarkdown(modules));
   // 兜底：模型没按 JSON 的 modules 返回（只给了 markdown/纯文本）时，从 markdown 文本重建分段，
