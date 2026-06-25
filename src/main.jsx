@@ -40,6 +40,12 @@ const ASSET_GROUPS = [
   { key: 'props', label: '道具', icon: Box }
 ];
 
+// 视觉风格名（仅展示名字；后端按名字展开为完整风格提示词执行）
+const STYLE_NAMES = [
+  '高清实拍真人风格', '电影大片风格', '赛博朋克风格', '暗黑哥特风格',
+  '日漫风格', '新海诚风格', '国风水墨风格', '游戏原画风格', '皮克斯风格'
+];
+
 function App() {
   const [script, setScript] = useState(sampleScript);
   const [file, setFile] = useState(null);
@@ -58,7 +64,7 @@ function App() {
   const [availableModels, setAvailableModels] = useState(null);
   const [settings, setSettings] = useState({
     aspectRatio: '9:16',
-    visualStyle: '写实电影感 + 现代都市',
+    visualStyle: '高清实拍真人风格',
     dramaIntensity: '中等情绪'
   });
 
@@ -438,7 +444,7 @@ function App() {
               </label>
             </div>
             <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
-            <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
+            <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
             <label className="field">
               <span>参考风格基调（选填·仅用于场景）</span>
               <input value={styleTone} placeholder="如：现实主义悬疑，低饱和冷暖对比" onChange={(e) => setStyleTone(e.target.value)} />
@@ -545,7 +551,7 @@ function App() {
               optionLabels={Object.fromEntries(videoSkillOptions.map((t) => [t.id, t.name]))}
               onChange={setVideoSkillId} />
             <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
-            <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
+            <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
             <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
           </div>
 

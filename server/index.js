@@ -107,6 +107,23 @@ const providerPresets = [
 
 const defaultProviderId = process.env.LLM_PROVIDER || 'openai';
 
+// 视觉风格预设：前端只显示风格名，后端把名字展开为完整风格提示词后注入生成。
+const STYLE_PRESETS = {
+  '赛博朋克风格': '电影感的写实摄影风格，光影氛围强烈，质感细腻真实。以赛博朋克霓虹色为主的冷色调，赛博朋克，霓虹灯，未来感，雨街，蓝色和紫色的色调。cinematic, photorealistic, neon lighting, cyberpunk aesthetic, cool tones, dramatic lighting, shallow depth of field, wet look',
+  '高清实拍真人风格': '电影感人像写真风格，照片级真实感，原始照片，数码单反相机，焦点清晰，高保真，4K 纹理，photorealistic, raw photo, DSLR, sharp focus, high fidelity, 4k texture',
+  '电影大片风格': '电影感胶片摄影风格，电影感灯光，电影剧照，35毫米拍摄，逼真，8K，杰作。cinematic lighting, movie still, shot on 35mm, realistic, 8k, masterpiece',
+  '暗黑哥特风格': '电影感超写实渲染风格，哥特风格，黑暗氛围，阴郁，雾，恐怖主题，低饱和度的颜色。gothic style, dark atmosphere, gloomy, fog, horror theme, muted colors',
+  '日漫风格': '现代日系动画电影风格，线条干净利落，动漫风格，2D动画，赛璐璐渲染，鲜艳的色彩。anime style, 2D animation, cel shading, vibrant colors, clean lines',
+  '新海诚风格': '新海诚电影动画风格，光影通透细腻，色彩清新明亮。新海诚风格，美丽的天空，镜头光斑，精致的背景，充满情感。Makoto Shinkai style, beautiful sky, lens flare, detailed background, emotional',
+  '国风水墨风格': '中国水墨画，水彩画，传统艺术，流畅的线条，东方美学。Chinese ink painting, watercolor, traditional art, flowing lines, oriental aesthetic',
+  '游戏原画风格': '游戏CG，封面艺术，高度细致，史诗般的构图，奇幻风格。game cg, splash art, highly detailed, epic composition, fantasy style',
+  '皮克斯风格': '三维渲染二维技术风格，柔和卡通造型，极致的物理真实感，细腻材质表现，大头身比、圆润的轮廓和富有灵性的大眼睛，夸张与圆润的角色设计，情绪化的色彩运用，电影级光影，治愈系氛围。Pixar style, 3D render, cinematic lighting, expressive eyes, heartwarming'
+};
+
+function expandStyle(name) {
+  return STYLE_PRESETS[name] || name || '';
+}
+
 // 反向代理后取真实客户端 IP（限流准确性）
 app.set('trust proxy', 1);
 
@@ -1108,6 +1125,7 @@ app.post('/api/projects/:projectId/generate', async (req, res, next) => {
     if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
 
     const { episodeIds = [], settings = {}, llm = {}, skillTemplateId = 'template-1' } = req.body;
+    settings.visualStyle = expandStyle(settings.visualStyle);
     const llmConfig = resolveLlmConfig(llm);
     const selected = project.episodes.filter((episode) => episodeIds.includes(episode.id));
     if (!selected.length) return res.status(400).json({ error: '请至少选择一集。' });
@@ -1258,6 +1276,7 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
     const project = projects.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
     const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1', ages = {}, styleTone = '' } = req.body;
+    settings.visualStyle = expandStyle(settings.visualStyle);
     const total = ['characters', 'scenes', 'props']
       .reduce((n, k) => n + (Array.isArray(assets[k]) ? assets[k].length : 0), 0);
     if (!total) return res.status(400).json({ error: '请至少选择一个美术资产。' });
