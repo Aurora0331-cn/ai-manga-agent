@@ -178,6 +178,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .field select:focus, .field input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
 .field input::placeholder { color: var(--text-faint); }
 .field input:disabled { background: var(--surface-3); color: var(--text-faint); }
+.field input.custom-model-input { border-color: var(--accent); }
 
 /* ===== Modal (二级页面) ===== */
 .modal-overlay { position: fixed; inset: 0; z-index: 50; background: var(--overlay); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 28px; animation: fade-in 0.18s ease; }

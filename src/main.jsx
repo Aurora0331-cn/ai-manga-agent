@@ -146,11 +146,12 @@ function App() {
   const selectedProvider = useMemo(() => providers.find((p) => p.id === llm.providerId), [providers, llm.providerId]);
 
   const modelOptions = useMemo(() => {
-    const base = availableModels && availableModels.length
+    // 该供应商的可用模型（连接测试拿到的真实列表优先，否则用预置列表）。
+    // 不强行把当前 llm.model 塞进来：当它不在列表里时，ModelField 会切换到“自定义模型”输入。
+    return availableModels && availableModels.length
       ? availableModels
-      : (selectedProvider?.models?.length ? selectedProvider.models : [llm.model]);
-    return base.includes(llm.model) ? base : [llm.model, ...base];
-  }, [availableModels, selectedProvider, llm.model]);
+      : (selectedProvider?.models || []);
+  }, [availableModels, selectedProvider]);
 
   const selectedOutput = useMemo(() => outputs.find((o) => o.episodeId === activeEpisodeId) || outputs[0], [outputs, activeEpisodeId]);
 
@@ -670,12 +671,22 @@ function SelectField({ label, value, options, optionLabels = {}, onChange }) {
 }
 
 function ModelField({ idKey, label, value, options, onChange }) {
-  const listId = `models-${idKey}`;
+  const CUSTOM = '__custom__';
+  // 当前模型不在该供应商的预置/可用列表里（含留空）→ 视为“自定义模型”，展开手动输入框。
+  const isCustom = !options.includes(value);
   return (
     <label className="field">
       <span>{label}</span>
-      <input list={listId} value={value} placeholder="输入或选择模型名" onChange={(e) => onChange(e.target.value)} />
-      <datalist id={listId}>{options.map((o) => <option key={o} value={o} />)}</datalist>
+      <select value={isCustom ? CUSTOM : value}
+        onChange={(e) => onChange(e.target.value === CUSTOM ? '' : e.target.value)}>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        <option value={CUSTOM}>自定义模型（手动输入）</option>
+      </select>
+      {isCustom && (
+        <input className="custom-model-input" value={value} autoFocus
+          placeholder="输入模型 ID，如 gpt-4 / doubao-seedance-2-0-260128"
+          onChange={(e) => onChange(e.target.value)} />
+      )}
     </label>
   );
 }
