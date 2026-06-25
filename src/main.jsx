@@ -49,7 +49,6 @@ function App() {
   const [notice, setNotice] = useState('');
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [dockPos, setDockPos] = useState(loadDockPos);
-  const dockDrag = React.useRef({ dragging: false, moved: false, sx: 0, sy: 0, ox: 0, oy: 0 });
   const [providers, setProviders] = useState([]);
   const [skillTemplates, setSkillTemplates] = useState([]);
   const [videoSkillId, setVideoSkillId] = useState('template-1');
@@ -93,26 +92,27 @@ function App() {
   function onDockDown(e) {
     const dock = e.currentTarget.closest('.model-dock');
     const r = dock.getBoundingClientRect();
-    dockDrag.current = { dragging: true, moved: false, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  }
-  function onDockMove(e) {
-    const d = dockDrag.current;
-    if (!d.dragging) return;
-    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.moved = true;
-    if (d.moved) {
-      const x = Math.max(8, Math.min(window.innerWidth - 72, d.ox + dx));
-      const y = Math.max(8, Math.min(window.innerHeight - 72, d.oy + dy));
-      setDockPos({ x, y });
-    }
-  }
-  function onDockUp(e) {
-    const d = dockDrag.current;
-    if (!d.dragging) return;
-    d.dragging = false;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-    if (!d.moved) setShowModelSettings((v) => !v);
+    const start = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false };
+    const move = (ev) => {
+      const dx = ev.clientX - start.sx, dy = ev.clientY - start.sy;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) start.moved = true;
+      if (start.moved) {
+        const x = Math.max(8, Math.min(window.innerWidth - 72, start.ox + dx));
+        const y = Math.max(8, Math.min(window.innerHeight - 72, start.oy + dy));
+        setDockPos({ x, y });
+      }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      if (!start.moved) setShowModelSettings((v) => !v);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
   }
 
   useEffect(() => {
@@ -600,7 +600,7 @@ function App() {
       )}
 
       <section className="model-dock" style={dockPos ? { left: dockPos.x, top: dockPos.y, right: 'auto', bottom: 'auto' } : undefined}>
-        <button type="button" className="model-dock-toggle" onPointerDown={onDockDown} onPointerMove={onDockMove} onPointerUp={onDockUp} title="拖动可移动，点击展开/收起">
+        <button type="button" className="model-dock-toggle" onPointerDown={onDockDown} title="拖动可移动，点击展开/收起">
           <RefreshCw size={20} /><span>LLM</span>
         </button>
         {showModelSettings && (
