@@ -138,6 +138,8 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .secondary:hover:not(:disabled) { background: var(--surface-3); border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
 .link-btn { border: none; background: none; color: var(--accent); font-size: 13px; font-weight: 600; padding: 4px 6px; border-radius: 6px; }
 .link-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.skill-upload-btn { cursor: pointer; gap: 7px; }
+.skill-upload-btn input { display: none; }
 
 /* ===== Empty state ===== */
 .empty-state { min-height: 200px; display: grid; place-items: center; text-align: center; color: var(--text-muted); border: 1.5px dashed var(--border-strong); border-radius: var(--radius); padding: 26px; background: var(--surface-2); font-size: 13.5px; line-height: 1.7; }

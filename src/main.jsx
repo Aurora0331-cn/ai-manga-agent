@@ -347,6 +347,13 @@ function App() {
               options={skillTemplates.map((t) => t.id)}
               optionLabels={Object.fromEntries(skillTemplates.map((t) => [t.id, `${t.name} - ${t.description || t.fileName}`]))}
               onChange={setSkillTemplateId} />
+            <div className="field">
+              <span>上传美术资产 SKILL</span>
+              <label className="secondary skill-upload-btn">
+                <Upload size={15} />{loading === 'skill-upload' ? '上传中…' : '上传 .txt / .md'}
+                <input type="file" accept=".txt,.md" onChange={uploadSkillTemplate} />
+              </label>
+            </div>
             <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
             <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
           </div>
