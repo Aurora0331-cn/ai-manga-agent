@@ -65,6 +65,8 @@ function App() {
   const [assetCat, setAssetCat] = useState('characters');
   const [assetItems, setAssetItems] = useState({}); // key `${type}|${name}` -> prompt
   const [assetView, setAssetView] = useState(null); // {type, name}
+  const [assetAges, setAssetAges] = useState({}); // 角色名 -> 出镜年龄
+  const [styleTone, setStyleTone] = useState(''); // 参考风格基调（仅用于场景）
 
   // 剧集提示词
   const [selectedIds, setSelectedIds] = useState([]);
@@ -179,6 +181,7 @@ function App() {
       setAssetItems({});
       setAssetView(null);
       setAssetCat('characters');
+      setAssetAges({});
       setOutputs([]);
       setCopyIds([]);
       setActiveEpisodeId(p.episodes[0]?.id || null);
@@ -220,7 +223,7 @@ function App() {
   async function callAssetGen(assets) {
     const res = await fetch(`${API}/projects/${project.id}/assets/generate`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assets, settings, llm, skillTemplateId: assetSkillId })
+      body: JSON.stringify({ assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone })
     });
     return readJson(res);
   }
@@ -400,6 +403,10 @@ function App() {
             </div>
             <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
             <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
+            <label className="field">
+              <span>参考风格基调（选填·仅用于场景）</span>
+              <input value={styleTone} placeholder="如：现实主义悬疑，低饱和冷暖对比" onChange={(e) => setStyleTone(e.target.value)} />
+            </label>
           </div>
 
           <div className="asset-tabs">
@@ -431,6 +438,23 @@ function App() {
               <button className="secondary" onClick={() => exportDoc('txt', '美术资产提示词', assetExportMarkdown())} disabled={!assetGenCount}><Download size={15} />TXT</button>
             </div>
           </div>
+
+          {assetCat === 'characters' && bibleNames('characters').length > 0 && (
+            <div className="age-confirm">
+              <div className="age-confirm-head">
+                <span>人物出镜年龄确认</span>
+                <em>短剧出镜年龄常≠剧本年龄；填写后角色提示词将采用此年龄（留空则由模型按剧本判断）</em>
+              </div>
+              <div className="age-grid">
+                {bibleNames('characters').map((name) => (
+                  <label key={name} className="age-item">
+                    <span>{name}</span>
+                    <input value={assetAges[name] || ''} placeholder="出镜年龄 如 26 / 25-30" onChange={(e) => setAssetAges({ ...assetAges, [name]: e.target.value })} />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="asset-library">
             <div className="asset-gallery">

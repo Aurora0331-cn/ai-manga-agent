@@ -1198,22 +1198,26 @@ function buildAssetItems(assets, modules) {
   return items;
 }
 
-function fallbackAssetPrompts({ project, assets, settings }) {
-  const aspect = settings.aspectRatio || '9:16';
+function fallbackAssetPrompts({ project, assets, settings, ages = {}, styleTone = '' }) {
   const style = settings.visualStyle || '写实电影感 + 现代都市';
+  const tone = styleTone ? `${styleTone}，` : '';
   const b = project.bible;
   const pick = (key) => (Array.isArray(assets[key]) ? assets[key] : []);
   const cs = b.characters.filter((c) => pick('characters').includes(c.name));
   const ss = b.scenes.filter((s) => pick('scenes').includes(s.name));
   const ps = b.props.filter((p) => pick('props').includes(p.name));
-  const characters = cs.map((c) => `### ${c.name}\n${aspect}，${style}，角色设定图（正面/侧面三视图参考）：${c.visual} 表情自然，高清细节，纯色背景，统一柔光，全身可见。`).join('\n\n');
-  const scenes = ss.map((s) => `### ${s.name}\n${aspect}，${style}，场景概念图：${s.description} 明确空间结构、主光位置、色温与关键陈设，画面中暂不出现人物。`).join('\n\n');
-  const props = ps.map((p) => `### ${p.name}\n${aspect}，${style}，道具特写图：${p.rule} 材质清晰，比例准确，细节锐利，纯色背景。`).join('\n\n');
+  // 角色/场景固定 21:9，道具固定 16:9（依美术资产 SKILL）
+  const characters = cs.map((c) => {
+    const age = ages[c.name] ? `出镜年龄 ${ages[c.name]}，` : '';
+    return `### ${c.name}\n比例 21:9，${style}，角色设定图（右侧头部特写 + 左侧全身三视图），纯白无缝背景，仅呈现角色本体、服装与随身饰品；${age}${c.visual} 表情自然，真实皮肤质感，柔焦边缘，克制细节。`;
+  }).join('\n\n');
+  const scenes = ss.map((s) => `### ${s.name}\n比例 21:9，${style}，${tone}无人空镜场景设定图，仅呈现空间结构、固定陈设和环境质感：${s.description} 明确空间结构、主光位置、色温与关键陈设，画面中无人物。`).join('\n\n');
+  const props = ps.map((p) => `### ${p.name}\n比例 16:9，${style}，道具设定图，白底或中性背景，仅呈现单一道具：${p.rule} 材质统一干净，边缘柔和且形体清楚，保留必要结构细节。`).join('\n\n');
   const modules = { characters, scenes, props };
   return { mode: 'fallback', modules, markdown: composeAssetMarkdown(modules) };
 }
 
-async function callAssetLLM({ skill, project, assets, settings, llm }) {
+async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, styleTone = '' }) {
   const config = resolveLlmConfig(llm);
   if (!config.apiKey) return null;
   const payload = {
@@ -1222,14 +1226,14 @@ async function callAssetLLM({ skill, project, assets, settings, llm }) {
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节，含画幅、视觉风格关键词、固定视觉设定（脸型/发型/服装主色/材质/比例）、背景与光照要求；③角色保持跨集一致，场景概念图不出现人物，道具为高清特写；④只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
       },
       {
         role: 'user',
-        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, globalBible: project.bible })
+        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, confirmedAges: ages, styleTone, globalBible: project.bible })
       }
     ],
     temperature: config.temperature,
@@ -1253,7 +1257,7 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
   try {
     const project = projects.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
-    const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1' } = req.body;
+    const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1', ages = {}, styleTone = '' } = req.body;
     const total = ['characters', 'scenes', 'props']
       .reduce((n, k) => n + (Array.isArray(assets[k]) ? assets[k].length : 0), 0);
     if (!total) return res.status(400).json({ error: '请至少选择一个美术资产。' });
@@ -1267,12 +1271,12 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
     };
     let output = null;
     try {
-      output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm });
+      output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone });
     } catch (error) {
       if (!llmError) llmError = parseLlmError(error.message);
       console.warn(`Asset LLM fell back: ${error.message}`);
     }
-    if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings }); }
+    if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings, ages, styleTone }); }
     output.items = buildAssetItems(assets, output.modules);
 
     res.json({
