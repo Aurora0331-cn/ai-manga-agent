@@ -29,6 +29,11 @@ function loadTheme() {
   try { return localStorage.getItem(THEME_KEY) || 'light'; } catch { return 'light'; }
 }
 
+const DOCK_KEY = 'ai-manga-agent.dock';
+function loadDockPos() {
+  try { const raw = localStorage.getItem(DOCK_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+
 const ASSET_GROUPS = [
   { key: 'characters', label: '角色', icon: Users },
   { key: 'scenes', label: '场景', icon: MapPin },
@@ -43,6 +48,8 @@ function App() {
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [dockPos, setDockPos] = useState(loadDockPos);
+  const dockDrag = React.useRef({ dragging: false, moved: false, sx: 0, sy: 0, ox: 0, oy: 0 });
   const [providers, setProviders] = useState([]);
   const [skillTemplates, setSkillTemplates] = useState([]);
   const [videoSkillId, setVideoSkillId] = useState('template-1');
@@ -78,6 +85,35 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
   }, [theme]);
+
+  useEffect(() => {
+    try { if (dockPos) localStorage.setItem(DOCK_KEY, JSON.stringify(dockPos)); } catch { /* ignore */ }
+  }, [dockPos]);
+
+  function onDockDown(e) {
+    const dock = e.currentTarget.closest('.model-dock');
+    const r = dock.getBoundingClientRect();
+    dockDrag.current = { dragging: true, moved: false, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  function onDockMove(e) {
+    const d = dockDrag.current;
+    if (!d.dragging) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.moved = true;
+    if (d.moved) {
+      const x = Math.max(8, Math.min(window.innerWidth - 72, d.ox + dx));
+      const y = Math.max(8, Math.min(window.innerHeight - 72, d.oy + dy));
+      setDockPos({ x, y });
+    }
+  }
+  function onDockUp(e) {
+    const d = dockDrag.current;
+    if (!d.dragging) return;
+    d.dragging = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (!d.moved) setShowModelSettings((v) => !v);
+  }
 
   useEffect(() => {
     try { localStorage.setItem(LLM_STORAGE_KEY, JSON.stringify(llm)); } catch { /* ignore */ }
@@ -563,9 +599,9 @@ function App() {
         </Modal>
       )}
 
-      <section className="model-dock">
-        <button type="button" className="model-dock-toggle" onClick={() => setShowModelSettings((v) => !v)}>
-          <RefreshCw size={22} /><span>LLM</span>
+      <section className="model-dock" style={dockPos ? { left: dockPos.x, top: dockPos.y, right: 'auto', bottom: 'auto' } : undefined}>
+        <button type="button" className="model-dock-toggle" onPointerDown={onDockDown} onPointerMove={onDockMove} onPointerUp={onDockUp} title="拖动可移动，点击展开/收起">
+          <RefreshCw size={20} /><span>LLM</span>
         </button>
         {showModelSettings && (
           <div className="model-panel bottom-model-panel">
