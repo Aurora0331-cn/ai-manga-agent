@@ -1253,6 +1253,23 @@ function splitAssetSections(markdown) {
   return map;
 }
 
+// 资产名归一化：去掉 @ 前缀、括号补充说明、空格/下划线/间隔号，便于模糊匹配。
+function normalizeAssetName(s = '') {
+  return String(s).replace(/^@+/, '').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s_·、,，-]/g, '').trim();
+}
+
+// 从小节映射里为某个资产名挑出提示词：精确匹配 → 归一化后包含匹配。
+function pickAssetPrompt(sectionMap, name) {
+  if (sectionMap[name]) return sectionMap[name];
+  const target = normalizeAssetName(name);
+  if (!target) return '';
+  for (const [key, val] of Object.entries(sectionMap)) {
+    const k = normalizeAssetName(key);
+    if (k && (k === target || k.includes(target) || target.includes(k))) return val;
+  }
+  return '';
+}
+
 // 为每个被选中的资产输出一条 {type, name, prompt}
 function buildAssetItems(assets, modules) {
   const maps = {
@@ -1262,8 +1279,12 @@ function buildAssetItems(assets, modules) {
   };
   const items = [];
   for (const type of ['characters', 'scenes', 'props']) {
-    for (const name of (Array.isArray(assets[type]) ? assets[type] : [])) {
-      items.push({ type, name, prompt: maps[type][name] || '' });
+    const names = Array.isArray(assets[type]) ? assets[type] : [];
+    for (const name of names) {
+      let prompt = pickAssetPrompt(maps[type], name);
+      // 兜底：该类只选了一个资产却没匹配到小节标题，但模型确实输出了内容 → 直接用整段。
+      if (!prompt && names.length === 1) prompt = String(modules[type] || '').trim();
+      items.push({ type, name, prompt });
     }
   }
   return items;
