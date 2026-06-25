@@ -1336,13 +1336,41 @@ ${skill.slice(0, 24000)}`
   const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = { modules: {}, markdown: content }; }
-  const modules = {
+  let modules = {
     characters: String(parsed.modules?.characters || ''),
     scenes: String(parsed.modules?.scenes || ''),
     props: String(parsed.modules?.props || '')
   };
-  const markdown = String(parsed.markdown || composeAssetMarkdown(modules));
+  const markdown = String(parsed.markdown || content || composeAssetMarkdown(modules));
+  // 兜底：模型没按 JSON 的 modules 返回（只给了 markdown/纯文本）时，从 markdown 文本重建分段，
+  // 否则前端按 modules 抽取会全空、看不到内容。
+  if (!modules.characters && !modules.scenes && !modules.props && markdown) {
+    modules = extractAssetModulesFromMarkdown(markdown);
+  }
   return { mode: 'llm', provider: config.providerName, model: config.model, modules, markdown };
+}
+
+// 从一段 markdown 里按"角色/场景/道具"一级或二级标题分区，重建 modules。
+function extractAssetModulesFromMarkdown(md = '') {
+  const out = { characters: '', scenes: '', props: '' };
+  if (!md) return out;
+  let current = '';
+  for (const block of md.split(/\n(?=#{1,2}\s)/)) {
+    const head = (block.match(/^#{1,2}\s*(.+)/) || [, ''])[1];
+    if (/^#{1,2}\s/.test(block)) {
+      if (/角色|人物|character/i.test(head)) current = 'characters';
+      else if (/场景|scene/i.test(head)) current = 'scenes';
+      else if (/道具|prop/i.test(head)) current = 'props';
+      // 三级小节（### 资产名）不切换分区，归入当前分区
+      else if (!/^###/.test(block)) current = '';
+    }
+    if (current) out[current] += (out[current] ? '\n\n' : '') + block.trim();
+  }
+  // 若整段没有任何分区标题，但有 ### 小节，默认全部归到角色，保证至少能显示。
+  if (!out.characters && !out.scenes && !out.props && /###\s/.test(md)) {
+    out.characters = md.trim();
+  }
+  return out;
 }
 
 app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
