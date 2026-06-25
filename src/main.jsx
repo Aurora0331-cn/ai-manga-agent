@@ -61,7 +61,9 @@ function App() {
 
   // 美术资产
   const [assetSel, setAssetSel] = useState({ characters: [], scenes: [], props: [] });
-  const [assetOutput, setAssetOutput] = useState(null);
+  const [assetCat, setAssetCat] = useState('characters');
+  const [assetItems, setAssetItems] = useState({}); // key `${type}|${name}` -> prompt
+  const [assetView, setAssetView] = useState(null); // {type, name}
 
   // 剧集提示词
   const [selectedIds, setSelectedIds] = useState([]);
@@ -174,7 +176,9 @@ function App() {
         scenes: p.bible.scenes.map((s) => s.name),
         props: p.bible.props.map((pr) => pr.name)
       });
-      setAssetOutput(null);
+      setAssetItems({});
+      setAssetView(null);
+      setAssetCat('characters');
       setOutputs([]);
       setCopyIds([]);
       setActiveEpisodeId(p.episodes[0]?.id || null);
@@ -204,23 +208,60 @@ function App() {
     });
   }
   const assetTotal = (assetSel.characters.length + assetSel.scenes.length + assetSel.props.length);
+  const assetKey = (type, name) => `${type}|${name}`;
+  function mergeAssetItems(items) {
+    setAssetItems((prev) => {
+      const next = { ...prev };
+      (items || []).forEach((it) => { next[assetKey(it.type, it.name)] = it.prompt || ''; });
+      return next;
+    });
+  }
+
+  async function callAssetGen(assets) {
+    const res = await fetch(`${API}/projects/${project.id}/assets/generate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assets, settings, llm, skillTemplateId })
+    });
+    return readJson(res);
+  }
 
   async function generateAssets() {
     if (!project || assetTotal === 0) return;
     setLoading('assets');
     setNotice('');
     try {
-      const res = await fetch(`${API}/projects/${project.id}/assets/generate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assets: assetSel, settings, llm, skillTemplateId })
-      });
-      const data = await readJson(res);
-      setAssetOutput(data.output);
+      const data = await callAssetGen(assetSel);
+      mergeAssetItems(data.output?.items);
       setNotice(data.usedFallback
         ? `美术资产：${mapLlmError(data.llmError)}，已用本地兜底生成。`
-        : `已用 ${data.provider} / ${data.model} 生成美术资产提示词。`);
+        : `已用 ${data.provider} / ${data.model} 生成 ${data.output?.items?.length || 0} 个资产提示词。`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
+
+  async function generateOne(type, name) {
+    if (!project) return;
+    setLoading(`asset-${type}-${name}`);
+    try {
+      const data = await callAssetGen({ characters: [], scenes: [], props: [], [type]: [name] });
+      mergeAssetItems(data.output?.items);
+      setAssetView({ type, name });
+      if (data.usedFallback && data.llmError?.code === 'missing_api_key') setNotice('未填写 API Key，已用本地兜底生成该资产。');
+    } catch (error) { setNotice(error.message); } finally { setLoading(''); }
+  }
+
+  function assetExportMarkdown() {
+    const order = ['characters', 'scenes', 'props'];
+    const labels = { characters: '角色', scenes: '场景', props: '道具' };
+    const blocks = [];
+    order.forEach((type) => {
+      const names = bibleNames(type).filter((n) => assetItems[assetKey(type, n)]);
+      if (names.length) {
+        blocks.push(`## ${labels[type]}\n\n` + names.map((n) => `### ${n}\n${assetItems[assetKey(type, n)]}`).join('\n\n'));
+      }
+    });
+    return blocks.length ? `# 美术资产提示词\n\n${blocks.join('\n\n')}\n` : '';
+  }
+  const assetGenCount = Object.keys(assetItems).length;
 
   // ===== 剧集提示词 =====
   function toggleEpisode(id) {
@@ -339,9 +380,9 @@ function App() {
         </section>
       </section>
 
-      {/* ===== 美术资产二级弹窗 ===== */}
+      {/* ===== 美术资产库二级弹窗 ===== */}
       {assetModal && project && (
-        <Modal title="美术资产" subtitle={`从全剧提取的资产词条 · 已选 ${assetTotal} 项`} onClose={() => setAssetModal(false)}>
+        <Modal title="美术资产库" subtitle={`从全剧提取 · 共 ${b.characters.length + b.scenes.length + b.props.length} 项 · 已生成 ${assetGenCount}`} onClose={() => setAssetModal(false)}>
           <div className="modal-settings">
             <SelectField label="提示词模板 / SKILL" value={skillTemplateId}
               options={skillTemplates.map((t) => t.id)}
@@ -358,50 +399,77 @@ function App() {
             <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
           </div>
 
-          {ASSET_GROUPS.map((g) => {
-            const names = bibleNames(g.key);
-            const sel = assetSel[g.key] || [];
-            const Icon = g.icon;
-            return (
-              <div className="asset-group" key={g.key}>
-                <div className="asset-group-head">
-                  <span className="asset-group-title"><Icon size={16} />{g.label}<em>{sel.length}/{names.length}</em></span>
-                  <button className="link-btn" onClick={() => toggleAssetGroup(g.key)} disabled={!names.length}>
-                    {names.length && sel.length === names.length ? '取消全选' : '全选'}
-                  </button>
-                </div>
-                {names.length ? (
-                  <div className="asset-chips">
-                    {names.map((name) => (
-                      <button key={name} className={`asset-chip ${sel.includes(name) ? 'on' : ''}`} onClick={() => toggleAsset(g.key, name)}>
-                        {sel.includes(name) ? <CheckSquare size={15} /> : <Square size={15} />}
-                        <span>{name}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : <p className="asset-empty">未识别到{g.label}词条。</p>}
-              </div>
-            );
-          })}
+          <div className="asset-tabs">
+            {ASSET_GROUPS.map((g) => {
+              const Icon = g.icon;
+              const total = bibleNames(g.key).length;
+              const gen = bibleNames(g.key).filter((n) => assetItems[assetKey(g.key, n)]).length;
+              return (
+                <button key={g.key} className={`asset-tab ${assetCat === g.key ? 'on' : ''}`} onClick={() => { setAssetCat(g.key); setAssetView(null); }}>
+                  <Icon size={16} />{g.label}<em>{gen}/{total}</em>
+                </button>
+              );
+            })}
+          </div>
 
-          <button className="primary" onClick={generateAssets} disabled={loading === 'assets' || assetTotal === 0}>
-            {loading === 'assets' ? <RefreshCw className="spin" size={18} /> : <Sparkles size={18} />}
-            生成美术资产提示词（{assetTotal}）
-          </button>
-
-          {assetOutput && (
-            <div className="result-block">
-              <div className="result-head">
-                <h3>资产提示词结果</h3>
-                <div className="actions">
-                  <button className="secondary" onClick={() => copyText(assetOutput.markdown, '已复制美术资产提示词。')}><Copy size={15} />复制</button>
-                  <button className="secondary" onClick={() => exportDoc('docx', '美术资产提示词', assetOutput.markdown)}><Download size={15} />Word</button>
-                  <button className="secondary" onClick={() => exportDoc('txt', '美术资产提示词', assetOutput.markdown)}><Download size={15} />TXT</button>
-                </div>
-              </div>
-              <pre className="markdown-view">{assetOutput.markdown}</pre>
+          <div className="asset-toolbar">
+            <div className="asset-toolbar-left">
+              <button className="link-btn" onClick={() => toggleAssetGroup(assetCat)} disabled={!bibleNames(assetCat).length}>
+                {bibleNames(assetCat).length && assetSel[assetCat].length === bibleNames(assetCat).length ? '取消全选' : '全选本类'}
+              </button>
+              <span className="muted-cap">已选 {assetSel[assetCat].length}/{bibleNames(assetCat).length}</span>
             </div>
-          )}
+            <div className="actions">
+              <button className="primary asset-gen-btn" onClick={generateAssets} disabled={loading === 'assets' || assetTotal === 0}>
+                {loading === 'assets' ? <RefreshCw className="spin" size={15} /> : <Sparkles size={15} />}生成选中（{assetTotal}）
+              </button>
+              <button className="secondary" onClick={() => copyText(assetExportMarkdown(), '已复制全部已生成资产提示词。')} disabled={!assetGenCount}><Copy size={15} />复制全部</button>
+              <button className="secondary" onClick={() => exportDoc('docx', '美术资产提示词', assetExportMarkdown())} disabled={!assetGenCount}><Download size={15} />Word</button>
+              <button className="secondary" onClick={() => exportDoc('txt', '美术资产提示词', assetExportMarkdown())} disabled={!assetGenCount}><Download size={15} />TXT</button>
+            </div>
+          </div>
+
+          <div className="asset-library">
+            <div className="asset-gallery">
+              {bibleNames(assetCat).length ? bibleNames(assetCat).map((name) => {
+                const done = !!assetItems[assetKey(assetCat, name)];
+                const checked = assetSel[assetCat].includes(name);
+                const active = assetView && assetView.type === assetCat && assetView.name === name;
+                return (
+                  <div key={name} className={`asset-card ${active ? 'active' : ''} ${checked ? 'checked' : ''}`} onClick={() => setAssetView({ type: assetCat, name })}>
+                    <span className="asset-card-check" onClick={(e) => { e.stopPropagation(); toggleAsset(assetCat, name); }}>
+                      {checked ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </span>
+                    <div className="asset-card-thumb">{assetCat === 'characters' ? <Users size={22} /> : assetCat === 'scenes' ? <MapPin size={22} /> : <Box size={22} />}</div>
+                    <div className="asset-card-name">{name}</div>
+                    <span className={`asset-status ${done ? 'done' : ''}`}>{done ? '已生成' : '未生成'}</span>
+                  </div>
+                );
+              }) : <p className="asset-empty">未识别到该类词条。</p>}
+            </div>
+
+            <div className="asset-detail">
+              {assetView ? (
+                <>
+                  <div className="asset-detail-head">
+                    <h3>{assetView.name}</h3>
+                    <div className="actions">
+                      {assetItems[assetKey(assetView.type, assetView.name)] && (
+                        <button className="secondary" onClick={() => copyText(assetItems[assetKey(assetView.type, assetView.name)], '已复制该资产提示词。')}><Copy size={14} />复制</button>
+                      )}
+                      <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
+                        {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
+                        {assetItems[assetKey(assetView.type, assetView.name)] ? '重新生成' : '生成此项'}
+                      </button>
+                    </div>
+                  </div>
+                  {assetItems[assetKey(assetView.type, assetView.name)]
+                    ? <pre className="markdown-view">{assetItems[assetKey(assetView.type, assetView.name)]}</pre>
+                    : <div className="empty-state">该资产尚未生成。点「生成此项」单独生成，或在上方「生成选中」批量生成。</div>}
+                </>
+              ) : <div className="empty-state">点击左侧资产卡片，查看或生成它的文生图提示词。</div>}
+            </div>
+          </div>
         </Modal>
       )}
 

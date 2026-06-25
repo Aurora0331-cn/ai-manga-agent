@@ -1158,6 +1158,33 @@ ${modules.props || '（本次未选择道具）'}
 `;
 }
 
+// 把某个模块的 markdown 按 "### 名称" 切成 名称 -> 正文 的映射
+function splitAssetSections(markdown) {
+  const map = {};
+  if (!markdown) return map;
+  for (const part of markdown.split(/\n(?=###\s)/)) {
+    const m = part.match(/^###\s*(.+?)\s*(?:\n([\s\S]*))?$/);
+    if (m) map[m[1].trim()] = (m[2] || '').trim();
+  }
+  return map;
+}
+
+// 为每个被选中的资产输出一条 {type, name, prompt}
+function buildAssetItems(assets, modules) {
+  const maps = {
+    characters: splitAssetSections(modules.characters),
+    scenes: splitAssetSections(modules.scenes),
+    props: splitAssetSections(modules.props)
+  };
+  const items = [];
+  for (const type of ['characters', 'scenes', 'props']) {
+    for (const name of (Array.isArray(assets[type]) ? assets[type] : [])) {
+      items.push({ type, name, prompt: maps[type][name] || '' });
+    }
+  }
+  return items;
+}
+
 function fallbackAssetPrompts({ project, assets, settings }) {
   const aspect = settings.aspectRatio || '9:16';
   const style = settings.visualStyle || '写实电影感 + 现代都市';
@@ -1233,6 +1260,7 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
       console.warn(`Asset LLM fell back: ${error.message}`);
     }
     if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings }); }
+    output.items = buildAssetItems(assets, output.modules);
 
     res.json({
       output,
