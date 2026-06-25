@@ -879,22 +879,34 @@ async function callLLM({ skill, project, episode, settings, llm }) {
     messages: [
       {
         role: 'system',
-        content: `你是AI漫剧视频提示词工业化生成智能体。必须严格遵守以下SKILL，输出中文。最终只返回JSON，不要包裹代码块。\n\n${skill.slice(0, 30000)}`
+        content: `你是「AI漫剧/短剧提示词工业化生成智能体」，为单集剧本产出可直接用于 AI 绘画与 AI 视频的中文提示词。
+
+【最高优先级硬规则，必须全部满足，违反任一即视为失败】
+1. 生成顺序：先产出角色/场景/道具的"文生图"提示词，再据此生成分镜"文生视频"提示词；视频提示词必须复用前面的视觉设定，不得另起一套。
+2. 台词：从剧本逐句提取，原文标点完整保留；逗号=短停顿、问号=尾音上扬、省略号=气口。严禁改写、合并或漏台词。
+3. 跨集一致性：同一角色/场景/道具在全剧保持脸型、发型、服装主色、材质、比例不漂移；严格参考下方 globalBible 与 continuity，不得新增原文未写明的人物方位或道具。
+4. 每个镜头必含：画幅、时间码、景别/机位、运镜、主体动作（内嵌该镜原台词）、环境细节、负面词、镜头时长。
+5. 文戏降噪：每镜头只锁定 1 个核心情绪、最多 3 个微表情锚点，避免表演一步到位、避免全程喊叫。
+6. 严格按 settings 的画幅、视觉风格、文戏强度执行；画幅在每条视频提示词中显式标注。
+7. 仅输出一个 JSON 对象，含键 modules{characters,scenes,props,dialogues,videoPrompts,selfCheck} 与 markdown；不要用代码块包裹，不要任何解释性文字。
+
+【参考 SKILL：风格与细节规范，在不违反上述硬规则的前提下尽量遵循】
+${skill.slice(0, 30000)}`
       },
       {
         role: 'user',
         content: JSON.stringify({
-          task: '为当前单集生成角色提示词、场景提示词、道具提示词、台词提取表、分镜视频提示词、自检表。',
+          task: '为"当前单集"生成可直接落地的 AI 绘画 + AI 视频中文提示词，覆盖角色、场景、道具、台词表、分镜视频、自检六个模块。',
           outputSchema: {
             modules: {
-              characters: 'markdown',
-              scenes: 'markdown',
-              props: 'markdown',
-              dialogues: 'markdown table',
-              videoPrompts: 'markdown',
-              selfCheck: 'markdown table'
+              characters: 'Markdown：每个出场角色一个 ### 小节，含固定视觉设定（脸型/发型/服装主色/核心记忆点）+ 本集情绪基调 + 画幅与视觉风格关键词。',
+              scenes: 'Markdown：每个场景一个 ### 小节，含空间结构/主光位置/色温/关键道具/可用于镜头承接的固定视觉符号。',
+              props: 'Markdown 列表：每个关键道具一行，含材质/磨损/比例/剧情归属，强调近景不变形不漂移。',
+              dialogues: 'Markdown 表格，表头固定为：编号 | 角色 | 原台词（保留标点） | 字数 | 语速类型 | 预计时长 | 所属组。逐句覆盖本集全部台词。',
+              videoPrompts: 'Markdown：按镜头分节（### 第N组/镜头N），每镜头含【画幅】【时间码】【景别/机位】【运镜】【主体动作：内嵌该镜原台词，保留标点】【环境细节】【负面词：分基础/类型/本组三层】【镜头时长】。',
+              selfCheck: 'Markdown 表格，表头为：检查项 | 结果。至少覆盖：台词完整、标点保留、文生图先行、跨集承接（写明上一集/下一集承接点）、画幅、文戏降噪。'
             },
-            markdown: '完整Markdown成片'
+            markdown: '把上述六个模块按 角色→场景→道具→台词表→分镜视频→自检 的顺序拼成的完整 Markdown 成片，带一级标题（剧集名）和二级标题。'
           },
           settings,
           globalBible: project.bible,
@@ -1125,6 +1137,112 @@ app.post('/api/projects/:projectId/generate', async (req, res, next) => {
         id: skill.template.id,
         name: skill.template.name
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ===== 美术资产提示词（文生图）=====
+function composeAssetMarkdown(modules) {
+  return `# 美术资产提示词
+
+## 角色
+${modules.characters || '（本次未选择角色）'}
+
+## 场景
+${modules.scenes || '（本次未选择场景）'}
+
+## 道具
+${modules.props || '（本次未选择道具）'}
+`;
+}
+
+function fallbackAssetPrompts({ project, assets, settings }) {
+  const aspect = settings.aspectRatio || '9:16';
+  const style = settings.visualStyle || '写实电影感 + 现代都市';
+  const b = project.bible;
+  const pick = (key) => (Array.isArray(assets[key]) ? assets[key] : []);
+  const cs = b.characters.filter((c) => pick('characters').includes(c.name));
+  const ss = b.scenes.filter((s) => pick('scenes').includes(s.name));
+  const ps = b.props.filter((p) => pick('props').includes(p.name));
+  const characters = cs.map((c) => `### ${c.name}\n${aspect}，${style}，角色设定图（正面/侧面三视图参考）：${c.visual} 表情自然，高清细节，纯色背景，统一柔光，全身可见。`).join('\n\n');
+  const scenes = ss.map((s) => `### ${s.name}\n${aspect}，${style}，场景概念图：${s.description} 明确空间结构、主光位置、色温与关键陈设，画面中暂不出现人物。`).join('\n\n');
+  const props = ps.map((p) => `### ${p.name}\n${aspect}，${style}，道具特写图：${p.rule} 材质清晰，比例准确，细节锐利，纯色背景。`).join('\n\n');
+  const modules = { characters, scenes, props };
+  return { mode: 'fallback', modules, markdown: composeAssetMarkdown(modules) };
+}
+
+async function callAssetLLM({ skill, project, assets, settings, llm }) {
+  const config = resolveLlmConfig(llm);
+  if (!config.apiKey) return null;
+  const payload = {
+    model: config.model,
+    messages: [
+      {
+        role: 'system',
+        content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节，含画幅、视觉风格关键词、固定视觉设定（脸型/发型/服装主色/材质/比例）、背景与光照要求；③角色保持跨集一致，场景概念图不出现人物，道具为高清特写；④只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释。
+
+【参考 SKILL（美术资产风格规范）】
+${skill.slice(0, 24000)}`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, globalBible: project.bible })
+      }
+    ],
+    temperature: config.temperature,
+    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 8000
+  };
+  if ((process.env.LLM_JSON_MODE || 'true') !== 'false') payload.response_format = { type: 'json_object' };
+  const data = await chatCompletion(config, payload);
+  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  let parsed;
+  try { parsed = parseLlmJson(content); } catch { parsed = { modules: {}, markdown: content }; }
+  const modules = {
+    characters: String(parsed.modules?.characters || ''),
+    scenes: String(parsed.modules?.scenes || ''),
+    props: String(parsed.modules?.props || '')
+  };
+  const markdown = String(parsed.markdown || composeAssetMarkdown(modules));
+  return { mode: 'llm', provider: config.providerName, model: config.model, modules, markdown };
+}
+
+app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
+  try {
+    const project = projects.get(req.params.projectId);
+    if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
+    const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1' } = req.body;
+    const total = ['characters', 'scenes', 'props']
+      .reduce((n, k) => n + (Array.isArray(assets[k]) ? assets[k].length : 0), 0);
+    if (!total) return res.status(400).json({ error: '请至少选择一个美术资产。' });
+
+    const llmConfig = resolveLlmConfig(llm);
+    const skill = await readSkill(skillTemplateId);
+    let usedFallback = false;
+    let llmError = llmConfig.apiKey ? null : {
+      code: 'missing_api_key',
+      message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成，或先查看本地兜底结果。`
+    };
+    let output = null;
+    try {
+      output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm });
+    } catch (error) {
+      if (!llmError) llmError = parseLlmError(error.message);
+      console.warn(`Asset LLM fell back: ${error.message}`);
+    }
+    if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings }); }
+
+    res.json({
+      output,
+      usedFallback,
+      provider: llmConfig.providerName,
+      model: llmConfig.model,
+      apiKeySource: llmConfig.apiKeySource,
+      apiKeyHint: llmConfig.apiKeyHint,
+      llmError,
+      counts: { characters: (assets.characters || []).length, scenes: (assets.scenes || []).length, props: (assets.props || []).length }
     });
   } catch (error) {
     next(error);
