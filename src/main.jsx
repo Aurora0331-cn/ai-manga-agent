@@ -264,11 +264,8 @@ function App() {
   }
 
   async function callAssetGen(assets) {
-    const res = await fetch(`${API}/projects/${project.id}/assets/generate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone })
-    });
-    return readJson(res);
+    return runJob(`${API}/projects/${project.id}/assets/generate`,
+      { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone });
   }
 
   async function generateAssets() {
@@ -323,11 +320,8 @@ function App() {
     setLoading('generate');
     setNotice('');
     try {
-      const res = await fetch(`${API}/projects/${project.id}/generate`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ episodeIds: selectedIds, settings, llm, skillTemplateId: videoSkillId })
-      });
-      const data = await readJson(res);
+      const data = await runJob(`${API}/projects/${project.id}/generate`,
+        { episodeIds: selectedIds, settings, llm, skillTemplateId: videoSkillId });
       setOutputs(data.outputs);
       setCopyIds(data.outputs.map((o) => o.episodeId));
       setActiveEpisodeId(data.outputs[0]?.episodeId || null);
@@ -695,6 +689,31 @@ async function readJson(res) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '请求失败');
   return data;
+}
+
+// 发起生成任务并轮询结果：后端立即返回 jobId，前端每隔几秒查一次。
+// 每个请求都很短，绕开免费托管层对单个长请求约 60 秒的断连限制。
+async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 600000 } = {}) {
+  const start = await readJson(await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }));
+  if (!start || !start.jobId) return start; // 兼容旧的同步返回
+  const deadline = Date.now() + maxWaitMs;
+  let pollFails = 0;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    let s;
+    try {
+      s = await readJson(await fetch(`${API}/jobs/${start.jobId}`));
+    } catch (e) {
+      if (++pollFails > 6) throw e; // 连续多次查询失败才放弃，容忍偶发网络抖动
+      continue;
+    }
+    pollFails = 0;
+    if (s.status === 'done') return s.result;
+    if (s.status === 'error') throw new Error(s.error?.message || '生成失败');
+  }
+  throw new Error('生成超时，请重试');
 }
 
 function mapLlmError(llmError) {

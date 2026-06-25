@@ -148,6 +148,22 @@ function expandStyle(name) {
   return STYLE_PRESETS[name] || name || '';
 }
 
+// ===== 异步任务：绕开免费托管层对单个 HTTP 请求约 60 秒的断连限制 =====
+// 生成类请求立即返回 jobId（不阻塞），后台执行 LLM；前端轮询 /api/jobs/:id 取结果。
+const jobs = new Map(); // jobId -> { status:'pending'|'done'|'error', result, error, createdAt }
+function createJob() {
+  const id = uid('job');
+  jobs.set(id, { status: 'pending', result: null, error: null, createdAt: Date.now() });
+  return id;
+}
+function finishJob(id, result) { const j = jobs.get(id); if (j) { j.status = 'done'; j.result = result; } }
+function failJob(id, error) { const j = jobs.get(id); if (j) { j.status = 'error'; j.error = error; } }
+// 定期清理 30 分钟前的旧任务，避免内存泄漏
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [id, j] of jobs) if (j.createdAt < cutoff) jobs.delete(id);
+}, 10 * 60 * 1000).unref();
+
 // 反向代理后取真实客户端 IP（限流准确性）
 app.set('trust proxy', 1);
 
@@ -1055,6 +1071,13 @@ app.get('/api/llm/providers', async (_req, res) => {
   });
 });
 
+// 轮询任务状态/结果。请求很短，不会触发托管层的长请求断连。
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: '任务不存在或已过期，请重新生成。' });
+  res.json({ status: job.status, result: job.result, error: job.error });
+});
+
 app.post('/api/llm/test', async (req, res, next) => {
   try {
     const config = resolveLlmConfig(req.body?.llm || req.body || {});
@@ -1154,44 +1177,50 @@ app.post('/api/projects/:projectId/generate', async (req, res, next) => {
     const selected = project.episodes.filter((episode) => episodeIds.includes(episode.id));
     if (!selected.length) return res.status(400).json({ error: '请至少选择一集。' });
 
-    const skill = await readSkill(skillTemplateId);
-    let usedFallback = false;
-    let llmError = llmConfig.apiKey ? null : {
-      code: 'missing_api_key',
-      message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板里选择供应商并粘贴你自己的 API Key 后再生成。`,
-      type: 'configuration_error'
-    };
+    // 立即返回 jobId，后台执行（绕开托管层长请求断连）。
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
 
-    // 有限并发生成，避免选"全部剧集"时一集一集串行排队。
-    const concurrency = Number(process.env.LLM_CONCURRENCY) || 3;
-    const outputs = await mapWithConcurrency(selected, concurrency, async (episode) => {
-      let llmOutput = null;
-      try {
-        llmOutput = await callLLM({ skill: skill.content, project, episode, settings, llm });
-      } catch (error) {
-        if (!llmError) llmError = parseLlmError(error.message);
-        console.warn(`LLM generation fell back for ${episode.title}: ${error.message}`);
-      }
-      if (!llmOutput) usedFallback = true;
-      const output = llmOutput || fallbackGenerateByTemplate({ project, episode, settings, skillTemplate: skill.template });
-      project.outputs[episode.id] = output;
-      return output;
-    });
-    await persistProject(project);
+    (async () => {
+      const skill = await readSkill(skillTemplateId);
+      let usedFallback = false;
+      let llmError = llmConfig.apiKey ? null : {
+        code: 'missing_api_key',
+        message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板里选择供应商并粘贴你自己的 API Key 后再生成。`,
+        type: 'configuration_error'
+      };
 
-    res.json({
-      outputs,
-      llmConfigured: Boolean(llmConfig.apiKey),
-      provider: llmConfig.providerName,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.apiKeySource,
-      apiKeyHint: llmConfig.apiKeyHint,
-      usedFallback,
-      llmError,
-      skillTemplate: {
-        id: skill.template.id,
-        name: skill.template.name
-      }
+      // 有限并发生成，避免选"全部剧集"时一集一集串行排队。
+      const concurrency = Number(process.env.LLM_CONCURRENCY) || 3;
+      const outputs = await mapWithConcurrency(selected, concurrency, async (episode) => {
+        let llmOutput = null;
+        try {
+          llmOutput = await callLLM({ skill: skill.content, project, episode, settings, llm });
+        } catch (error) {
+          if (!llmError) llmError = parseLlmError(error.message);
+          console.warn(`LLM generation fell back for ${episode.title}: ${error.message}`);
+        }
+        if (!llmOutput) usedFallback = true;
+        const output = llmOutput || fallbackGenerateByTemplate({ project, episode, settings, skillTemplate: skill.template });
+        project.outputs[episode.id] = output;
+        return output;
+      });
+      await persistProject(project);
+
+      finishJob(jobId, {
+        outputs,
+        llmConfigured: Boolean(llmConfig.apiKey),
+        provider: llmConfig.providerName,
+        model: llmConfig.model,
+        apiKeySource: llmConfig.apiKeySource,
+        apiKeyHint: llmConfig.apiKeyHint,
+        usedFallback,
+        llmError,
+        skillTemplate: { id: skill.template.id, name: skill.template.name }
+      });
+    })().catch((error) => {
+      console.error(`Generate job failed: ${error.message}`);
+      failJob(jobId, parseLlmError(error.message));
     });
   } catch (error) {
     next(error);
@@ -1306,31 +1335,41 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
     if (!total) return res.status(400).json({ error: '请至少选择一个美术资产。' });
 
     const llmConfig = resolveLlmConfig(llm);
-    const skill = await readSkill(skillTemplateId);
-    let usedFallback = false;
-    let llmError = llmConfig.apiKey ? null : {
-      code: 'missing_api_key',
-      message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成，或先查看本地兜底结果。`
-    };
-    let output = null;
-    try {
-      output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone });
-    } catch (error) {
-      if (!llmError) llmError = parseLlmError(error.message);
-      console.warn(`Asset LLM fell back: ${error.message}`);
-    }
-    if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings, ages, styleTone }); }
-    output.items = buildAssetItems(assets, output.modules);
 
-    res.json({
-      output,
-      usedFallback,
-      provider: llmConfig.providerName,
-      model: llmConfig.model,
-      apiKeySource: llmConfig.apiKeySource,
-      apiKeyHint: llmConfig.apiKeyHint,
-      llmError,
-      counts: { characters: (assets.characters || []).length, scenes: (assets.scenes || []).length, props: (assets.props || []).length }
+    // 立即返回 jobId，后台执行（绕开托管层长请求断连）。
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
+
+    (async () => {
+      const skill = await readSkill(skillTemplateId);
+      let usedFallback = false;
+      let llmError = llmConfig.apiKey ? null : {
+        code: 'missing_api_key',
+        message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成，或先查看本地兜底结果。`
+      };
+      let output = null;
+      try {
+        output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone });
+      } catch (error) {
+        if (!llmError) llmError = parseLlmError(error.message);
+        console.warn(`Asset LLM fell back: ${error.message}`);
+      }
+      if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings, ages, styleTone }); }
+      output.items = buildAssetItems(assets, output.modules);
+
+      finishJob(jobId, {
+        output,
+        usedFallback,
+        provider: llmConfig.providerName,
+        model: llmConfig.model,
+        apiKeySource: llmConfig.apiKeySource,
+        apiKeyHint: llmConfig.apiKeyHint,
+        llmError,
+        counts: { characters: (assets.characters || []).length, scenes: (assets.scenes || []).length, props: (assets.props || []).length }
+      });
+    })().catch((error) => {
+      console.error(`Asset job failed: ${error.message}`);
+      failJob(jobId, parseLlmError(error.message));
     });
   } catch (error) {
     next(error);
