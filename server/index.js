@@ -96,6 +96,30 @@ const providerPresets = [
     models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'gpt-5.4', 'gpt-5.5']
   },
   {
+    id: 'geeknow',
+    name: 'Geeknow API',
+    baseUrl: process.env.GEEKNOW_BASE_URL || 'https://www.geeknow.top/v1',
+    apiKeyEnv: 'GEEKNOW_API_KEY',
+    allowCustomBaseUrl: true,
+    models: ['gpt-4o', 'gpt-4.1', 'claude-sonnet-4-6', 'claude-opus-4-6', 'deepseek-v4-pro', 'deepseek-chat', 'gemini-2.5-pro', 'qwen3-max']
+  },
+  {
+    id: 'ussn',
+    name: '优尚 API',
+    baseUrl: process.env.USSN_BASE_URL || 'https://api.ussn.cn/v1',
+    apiKeyEnv: 'USSN_API_KEY',
+    allowCustomBaseUrl: true,
+    models: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-sonnet-4-20250514', 'deepseek-chat', 'deepseek-reasoner', 'gemini-2.5-pro', 'qwen-max']
+  },
+  {
+    id: 'comfly',
+    name: 'Comfly API',
+    baseUrl: process.env.COMFLY_BASE_URL || 'https://ai.comfly.chat/v1',
+    apiKeyEnv: 'COMFLY_API_KEY',
+    allowCustomBaseUrl: true,
+    models: ['gpt-4o', 'gpt-4.1', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'deepseek-chat', 'deepseek-reasoner', 'gemini-2.5-pro', 'qwen-max']
+  },
+  {
     id: 'custom',
     name: '自定义 (OpenAI 兼容)',
     baseUrl: process.env.CUSTOM_BASE_URL || 'https://api.openai.com/v1',
