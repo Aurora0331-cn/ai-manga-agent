@@ -17,6 +17,7 @@ const dataDir = path.resolve(rootDir, 'data', 'projects');
 const defaultSkillPath = path.resolve(rootDir, 'skills', 'template-1-video-prompt-industrial-skill-v1.9.3.md');
 const skillUploadDir = path.resolve(rootDir, 'skill-templates');
 const verticalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-2-vertical-real-person-prompt.txt');
+const assetSkillPath = path.resolve(rootDir, 'skills', 'template-asset-art-asset-prompt.md');
 
 const app = express();
 const maxBodyMb = Number(process.env.MAX_BODY_MB) || 20;
@@ -27,17 +28,27 @@ const userSkillTemplates = new Map();
 const builtInSkillTemplates = [
   {
     id: 'template-1',
-    name: '模板一',
+    name: '模板一·视频分镜',
     description: '视频提示词工业化生成工作流 V1.9.3',
     path: process.env.SKILL_PATH || defaultSkillPath,
-    source: 'built-in'
+    source: 'built-in',
+    kind: 'video'
   },
   {
     id: 'template-2',
-    name: '模板二',
-    description: '竖屏真人 Seedance 2.0 提示词',
+    name: '模板二·竖屏真人',
+    description: '竖屏真人 Seedance 2.0 视频提示词',
     path: verticalRealPersonSkillPath,
-    source: 'built-in'
+    source: 'built-in',
+    kind: 'video'
+  },
+  {
+    id: 'asset-default',
+    name: '美术资产 SKILL',
+    description: 'AI 漫剧美术资产提示词（默认，可上传替换）',
+    path: assetSkillPath,
+    source: 'built-in',
+    kind: 'asset'
   }
 ];
 
@@ -439,6 +450,7 @@ function listSkillTemplates() {
     name: template.name,
     description: template.description,
     source: template.source,
+    kind: template.kind || null,
     fileName: template.fileName || path.basename(template.path || '')
   }));
 }
@@ -1056,7 +1068,8 @@ app.post('/api/skill-templates/upload', upload.single('skillFile'), async (req, 
       description: '用户上传的 SKILL 模板',
       path: filePath,
       fileName,
-      source: 'user'
+      source: 'user',
+      kind: (normalizeText(req.body.kind || '') === 'video') ? 'video' : 'asset'
     };
     userSkillTemplates.set(id, template);
     res.json({ template: listSkillTemplates().find((item) => item.id === id) });

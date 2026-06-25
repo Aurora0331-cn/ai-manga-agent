@@ -45,7 +45,8 @@ function App() {
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [providers, setProviders] = useState([]);
   const [skillTemplates, setSkillTemplates] = useState([]);
-  const [skillTemplateId, setSkillTemplateId] = useState('template-1');
+  const [videoSkillId, setVideoSkillId] = useState('template-1');
+  const [assetSkillId, setAssetSkillId] = useState('asset-default');
   const storedLlmRef = React.useRef(loadStoredLlm());
   const [llm, setLlm] = useState(() => storedLlmRef.current || defaultLlm);
   const [availableModels, setAvailableModels] = useState(null);
@@ -113,7 +114,6 @@ function App() {
     try {
       const data = await readJson(await fetch(`${API}/skill-templates`));
       setSkillTemplates(data.templates || []);
-      setSkillTemplateId((current) => current || data.defaultTemplateId || 'template-1');
     } catch { setSkillTemplates([]); }
   }
 
@@ -220,7 +220,7 @@ function App() {
   async function callAssetGen(assets) {
     const res = await fetch(`${API}/projects/${project.id}/assets/generate`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assets, settings, llm, skillTemplateId })
+      body: JSON.stringify({ assets, settings, llm, skillTemplateId: assetSkillId })
     });
     return readJson(res);
   }
@@ -279,7 +279,7 @@ function App() {
     try {
       const res = await fetch(`${API}/projects/${project.id}/generate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ episodeIds: selectedIds, settings, llm, skillTemplateId })
+        body: JSON.stringify({ episodeIds: selectedIds, settings, llm, skillTemplateId: videoSkillId })
       });
       const data = await readJson(res);
       setOutputs(data.outputs);
@@ -313,14 +313,17 @@ function App() {
       const form = new FormData();
       form.append('skillFile', skillFile);
       form.append('name', skillFile.name.replace(/\.[^.]+$/, ''));
+      form.append('kind', 'asset');
       const data = await readJson(await fetch(`${API}/skill-templates/upload`, { method: 'POST', body: form }));
       await loadSkillTemplates();
-      if (data.template?.id) setSkillTemplateId(data.template.id);
-      setNotice('已上传并选中新 SKILL 模板。');
+      if (data.template?.id) setAssetSkillId(data.template.id);
+      setNotice('已上传并选用新的美术资产 SKILL。');
     } catch (error) { setNotice(error.message); } finally { event.target.value = ''; setLoading(''); }
   }
 
   const b = project?.bible;
+  const videoSkillOptions = skillTemplates.filter((t) => t.kind === 'video' || !t.kind);
+  const assetSkillOptions = skillTemplates.filter((t) => t.kind === 'asset' || !t.kind);
 
   return (
     <main className="app-shell">
@@ -384,10 +387,10 @@ function App() {
       {assetModal && project && (
         <Modal title="美术资产库" subtitle={`从全剧提取 · 共 ${b.characters.length + b.scenes.length + b.props.length} 项 · 已生成 ${assetGenCount}`} onClose={() => setAssetModal(false)}>
           <div className="modal-settings">
-            <SelectField label="提示词模板 / SKILL" value={skillTemplateId}
-              options={skillTemplates.map((t) => t.id)}
-              optionLabels={Object.fromEntries(skillTemplates.map((t) => [t.id, `${t.name} - ${t.description || t.fileName}`]))}
-              onChange={setSkillTemplateId} />
+            <SelectField label="美术资产 SKILL" value={assetSkillId}
+              options={assetSkillOptions.map((t) => t.id)}
+              optionLabels={Object.fromEntries(assetSkillOptions.map((t) => [t.id, t.name]))}
+              onChange={setAssetSkillId} />
             <div className="field">
               <span>上传美术资产 SKILL</span>
               <label className="secondary skill-upload-btn">
@@ -477,6 +480,10 @@ function App() {
       {episodeModal && project && (
         <Modal title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · 已选 ${selectedIds.length} 集`} onClose={() => setEpisodeModal(false)}>
           <div className="modal-settings">
+            <SelectField label="视频分镜 SKILL" value={videoSkillId}
+              options={videoSkillOptions.map((t) => t.id)}
+              optionLabels={Object.fromEntries(videoSkillOptions.map((t) => [t.id, t.name]))}
+              onChange={setVideoSkillId} />
             <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
             <SelectField label="视觉风格" value={settings.visualStyle} options={['写实电影感 + 现代都市', '写实电影感 + 古装', '悬疑冷调电影感', '家庭生活质感', '3DCG 动画电影感']} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
             <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
