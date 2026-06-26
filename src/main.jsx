@@ -88,6 +88,9 @@ function App() {
   const [activeEpisodeId, setActiveEpisodeId] = useState(null);
   const [copyIds, setCopyIds] = useState([]);
   const [focusedEpisodeId, setFocusedEpisodeId] = useState(null); // 右上「剧本原文」展示哪一集
+  const [expandedEp, setExpandedEp] = useState({}); // 剧集是否展开显示场次
+  const [focusedScene, setFocusedScene] = useState(null); // { episodeId, sceneId }
+  const [sceneOutputs, setSceneOutputs] = useState({}); // sceneId -> 分镜 markdown
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -398,6 +401,26 @@ function App() {
         : `已用 ${data.provider} / ${data.model} 生成提示词。${keyInfo}`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
+  // ===== 按场次拆分 + 分镜分段 =====
+  function episodeScenes(ep) {
+    return (ep && ep.scenes && ep.scenes.length) ? ep.scenes : (ep ? [{ id: `${ep.id}_all`, name: ep.title || '全场', script: ep.script }] : []);
+  }
+  function toggleExpandEp(id) {
+    setExpandedEp((m) => ({ ...m, [id]: !m[id] }));
+  }
+  async function generateScene() {
+    if (!project || !focusedScene) return;
+    setLoading('scene');
+    setNotice('');
+    try {
+      const data = await runJob(`${API}/projects/${project.id}/scene-generate`,
+        { episodeId: focusedScene.episodeId, sceneId: focusedScene.sceneId, settings, llm, skillTemplateId: videoSkillId });
+      setSceneOutputs((prev) => ({ ...prev, [focusedScene.sceneId]: data.markdown || '' }));
+      setNotice(data.usedFallback
+        ? `本场：${mapLlmError(data.llmError)}，已用本地兜底生成。`
+        : `已用 ${data.provider} / ${data.model} 生成本场分镜。`);
+    } catch (error) { setNotice(error.message); } finally { setLoading(''); }
+  }
   function toggleCopy(id) {
     setCopyIds((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   }
@@ -657,10 +680,17 @@ function App() {
       )}
 
       {/* ===== 剧集提示词二级弹窗 ===== */}
-      {episodeModal && project && (
-        <Modal className="modal-wide" title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · 已选 ${selectedIds.length} 集`} onClose={() => setEpisodeModal(false)}>
+      {episodeModal && project && (() => {
+        const fEp = focusedScene ? project.episodes.find((e) => e.id === focusedScene.episodeId) : null;
+        const fScene = fEp ? episodeScenes(fEp).find((s) => s.id === focusedScene.sceneId) : null;
+        const sceneMd = (fScene && sceneOutputs[fScene.id]) || '';
+        const parsed = sceneMd ? parseShots(sceneMd) : null;
+        const totalScenes = project.episodes.reduce((n, ep) => n + episodeScenes(ep).length, 0);
+        const doneScenes = Object.values(sceneOutputs).filter(Boolean).length;
+        return (
+        <Modal className="modal-wide" title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · ${totalScenes} 场次 · 已生成 ${doneScenes}`} onClose={() => setEpisodeModal(false)}>
           <div className="ep-workbench">
-            {/* 左栏：前置设置 + 剧集选择 */}
+            {/* 左栏：前置设置 + 剧集→场次 */}
             <div className="ep-left">
               <div className="modal-settings ep-settings">
                 <SelectField label="视频分镜 SKILL" value={videoSkillId}
@@ -672,75 +702,79 @@ function App() {
                 <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
               </div>
 
-              <div className="ep-actions">
-                <button className="secondary" onClick={selectAllEpisodes}>
-                  {selectedIds.length === project.episodes.length ? <CheckSquare size={16} /> : <Square size={16} />}全选剧集
-                </button>
-                <span className="ep-count">{selectedIds.length} / {project.episodes.length} 已选择</span>
-                <button className="primary ep-gen" onClick={generatePrompts} disabled={loading === 'generate' || selectedIds.length === 0}>
-                  {loading === 'generate' ? <RefreshCw className="spin" size={16} /> : <Play size={16} />}生成选中剧集提示词
-                </button>
-              </div>
-
               <div className="ep-picker">
-                {project.episodes.map((episode) => (
-                  <button key={episode.id}
-                    className={`episode-item ${selectedIds.includes(episode.id) ? 'selected' : ''} ${focusedEpisodeId === episode.id ? 'focused' : ''}`}
-                    title="点击只选这一集；勾选框可多选"
-                    onClick={() => { setSelectedIds([episode.id]); setFocusedEpisodeId(episode.id); }}>
-                    <span className="ep-card-check" role="checkbox" aria-checked={selectedIds.includes(episode.id)}
-                      onClick={(e) => { e.stopPropagation(); toggleEpisode(episode.id); setFocusedEpisodeId(episode.id); }}>
-                      {selectedIds.includes(episode.id) ? <CheckSquare size={15} /> : <Square size={15} />}
-                    </span>
-                    <span className="episode-number">第 {episode.number} 集</span>
-                    <strong>{episode.title}</strong>
-                    <small>{episode.summary}</small>
-                  </button>
-                ))}
+                {project.episodes.map((episode) => {
+                  const scenes = episodeScenes(episode);
+                  const open = !!expandedEp[episode.id];
+                  return (
+                    <div key={episode.id} className="ep-group">
+                      <button className="ep-group-head" onClick={() => toggleExpandEp(episode.id)}>
+                        <span className="ep-caret">{open ? '▾' : '▸'}</span>
+                        <span className="episode-number">第 {episode.number} 集</span>
+                        <strong>{episode.title}</strong>
+                        <em>{scenes.length} 场</em>
+                      </button>
+                      {open && (
+                        <div className="scene-sublist">
+                          {scenes.map((sc) => (
+                            <button key={sc.id}
+                              className={`scene-item ${focusedScene && focusedScene.sceneId === sc.id ? 'focused' : ''}`}
+                              onClick={() => setFocusedScene({ episodeId: episode.id, sceneId: sc.id })}>
+                              <span className="scene-name">{sc.name}</span>
+                              {sceneOutputs[sc.id] && <span className="scene-done">已生成</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* 右栏：上=剧本原文，下=提示词输出 */}
+            {/* 右栏：上=本场剧本，下=分镜(按镜头分段) */}
             <div className="ep-right">
               <div className="ep-script">
-                <div className="ep-pane-head"><h3>剧本原文 · {focusedEpisode ? focusedEpisode.title : '未选择'}</h3></div>
-                <pre className="markdown-view script-view">{focusedEpisode ? focusedEpisode.script : '点击左侧任意一集，这里显示该集剧本原文。'}</pre>
+                <div className="ep-pane-head"><h3>剧本原文 · {fScene ? fScene.name : '未选择场次'}</h3></div>
+                <pre className="markdown-view script-view">{fScene ? fScene.script : '展开剧集、点击某一场次，这里显示该场剧本。'}</pre>
               </div>
 
               <div className="ep-output">
                 <div className="result-head">
-                  <h3>提示词输出 · 共 {outputs.length} 集</h3>
-                  {outputs.length > 0 && (
-                    <div className="actions">
-                      <button className="secondary" onClick={selectAllCopy}>{allCopyChecked ? <CheckSquare size={15} /> : <Square size={15} />}全选</button>
-                      <button className="secondary" onClick={() => copyText(chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'), `已复制 ${chosenOutputs().length} 集提示词。`)}><Copy size={15} />复制选中{copyIds.length ? ` (${copyIds.length})` : ''}</button>
-                      <button className="secondary" onClick={() => exportDoc('docx', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />Word</button>
-                      <button className="secondary" onClick={() => exportDoc('txt', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />TXT</button>
-                    </div>
-                  )}
+                  <h3>分镜提示词{fScene ? ` · ${fScene.name}` : ''}{parsed ? `（${parsed.shots.length} 个镜头）` : ''}</h3>
+                  <div className="actions">
+                    {fScene && (
+                      <button className="primary" onClick={generateScene} disabled={loading === 'scene'}>
+                        {loading === 'scene' ? <RefreshCw className="spin" size={15} /> : <Play size={15} />}{sceneMd ? '重新生成本场' : '生成本场分镜'}
+                      </button>
+                    )}
+                    {sceneMd && <button className="secondary" onClick={() => copyText(sceneMd, '已复制本场全部分镜。')}><Copy size={15} />复制全部</button>}
+                    {sceneMd && <button className="secondary" onClick={() => exportDoc('docx', `分镜_${fScene.name}`, sceneMd)}><Download size={15} />Word</button>}
+                    {sceneMd && <button className="secondary" onClick={() => exportDoc('txt', `分镜_${fScene.name}`, sceneMd)}><Download size={15} />TXT</button>}
+                  </div>
                 </div>
-                {outputs.length > 0 ? (
-                  <div className="output-body">
-                    <div className="episode-checklist">
-                      {outputs.map((output) => (
-                        <div key={output.episodeId} className={`epchip ${activeEpisodeId === output.episodeId ? 'active' : ''} ${copyIds.includes(output.episodeId) ? 'checked' : ''}`} onClick={() => setActiveEpisodeId(output.episodeId)}>
-                          <span className="epchip-check" role="checkbox" aria-checked={copyIds.includes(output.episodeId)} onClick={(e) => { e.stopPropagation(); toggleCopy(output.episodeId); }}>
-                            {copyIds.includes(output.episodeId) ? <CheckSquare size={16} /> : <Square size={16} />}
-                          </span>
-                          <span className="epchip-title">{output.title}</span>
+                {parsed ? (
+                  <div className="shot-list">
+                    {parsed.head && <pre className="markdown-view">{parsed.head}</pre>}
+                    {parsed.shots.map((s, i) => (
+                      <div key={i} className="shot-block">
+                        <div className="shot-block-head">
+                          <span className="shot-name">{s.name}</span>
+                          <button className="secondary" onClick={() => copyText(s.text, `已复制「${s.name}」。`)}><Copy size={13} />复制</button>
                         </div>
-                      ))}
-                    </div>
-                    <pre className="markdown-view">{selectedOutput ? selectedOutput.markdown : ''}</pre>
+                        <pre className="markdown-view">{s.text}</pre>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <div className="empty-state">选择剧集并点「生成选中剧集提示词」后，这里显示分镜提示词。</div>
+                  <div className="empty-state">{fScene ? '点「生成本场分镜」生成该场分镜，将按镜头（每段约 4-15 秒）分段、可单独复制。' : '展开剧集并选择一个场次后，点「生成本场分镜」。'}</div>
                 )}
               </div>
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       <section className="model-dock" style={dockPos ? { left: dockPos.x, top: dockPos.y, right: 'auto', bottom: 'auto' } : undefined}>
         <button type="button" className="model-dock-toggle" onPointerDown={onDockDown} title="拖动可移动，点击展开/收起">
@@ -855,6 +889,26 @@ function parseCharacterOutfits(md = '') {
     return { anchor: anchorMatch ? anchorMatch[1].trim() : '', outfits: [{ name: '默认造型', prompt: text }] };
   }
   return { anchor, outfits };
+}
+
+// 把分镜 markdown 拆成「头部(全局/模板说明)」+ 各镜头段(每段约 4-15 秒，可单独复制)。
+function parseShots(md = '') {
+  const text = String(md || '').trim();
+  if (!text) return { head: '', shots: [] };
+  // 镜头头：## 镜头N / ### 第N组 / 【镜头N】 等
+  const re = /\n(?=(?:#{2,4}\s*)?(?:镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜头))/;
+  const parts = text.split(re).map((p) => p.trim()).filter(Boolean);
+  const shots = [];
+  let head = '';
+  parts.forEach((p, i) => {
+    const isShot = /^(?:#{2,4}\s*)?(?:镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜头)/.test(p);
+    if (i === 0 && !isShot) { head = p; return; }
+    const m = p.match(/^(?:#{2,4}\s*)?【?\s*(镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜][^\n】]*)/);
+    const name = m ? m[1].replace(/[#【】]/g, '').trim() : `镜头 ${shots.length + 1}`;
+    shots.push({ name, text: p });
+  });
+  if (!shots.length) shots.push({ name: '全部', text });
+  return { head, shots };
 }
 
 // 发起生成任务并轮询结果：后端立即返回 jobId，前端每隔几秒查一次。

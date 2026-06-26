@@ -591,11 +591,31 @@ function createEpisode(number, title, script) {
     number,
     title: title.replace(/^#+\s*/, ''),
     script,
+    scenes: splitScenes(script),
     summary: summarizeText(script, 110),
     opening: summarizeText(lines.slice(0, 6).join(' '), 80),
     ending: summarizeText(lines.slice(-6).join(' '), 80),
     firstScene: firstScene || '未明确场景'
   };
+}
+
+// 把一集按场次/场景拆开。场次头形如「1-1 日 外 祭坛」「场景1-1 日 内 …」「8-1 夜 内 宗人府」。
+function splitScenes(script) {
+  const text = normalizeText(script);
+  const lines = text.split('\n');
+  const headRe = /^\s*(?:场景|场|镜)?\s*\d+\s*[-－—]\s*\d+\b/;
+  const idxs = [];
+  lines.forEach((ln, i) => { if (headRe.test(ln)) idxs.push(i); });
+  if (idxs.length < 2) {
+    return [{ id: uid('sc'), name: '全场', script: text }];
+  }
+  const scenes = [];
+  idxs.forEach((start, k) => {
+    const end = k + 1 < idxs.length ? idxs[k + 1] : lines.length;
+    const chunk = lines.slice(start, end).join('\n').trim();
+    if (chunk) scenes.push({ id: uid('sc'), name: (lines[start].trim().slice(0, 32) || `场次 ${k + 1}`), script: chunk });
+  });
+  return scenes.length ? scenes : [{ id: uid('sc'), name: '全场', script: text }];
 }
 
 function summarizeText(text, length = 100) {
@@ -1161,6 +1181,57 @@ app.post('/api/projects/parse', upload.single('scriptFile'), async (req, res, ne
     projects.set(project.id, project);
     await persistProject(project);
     res.json({ project });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 按「场次」生成分镜：把某集某一场当作独立单元生成视频提示词。
+app.post('/api/projects/:projectId/scene-generate', async (req, res, next) => {
+  try {
+    const project = projects.get(req.params.projectId);
+    if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
+    const { episodeId, sceneId, settings = {}, llm = {}, skillTemplateId = 'template-1' } = req.body;
+    settings.visualStyle = expandStyle(settings.visualStyle);
+    const episode = project.episodes.find((e) => e.id === episodeId);
+    if (!episode) return res.status(400).json({ error: '剧集不存在。' });
+    const scene = (episode.scenes || []).find((s) => s.id === sceneId);
+    if (!scene) return res.status(400).json({ error: '场次不存在。' });
+
+    const llmConfig = resolveLlmConfig(llm);
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
+
+    (async () => {
+      const skill = await readSkill(skillTemplateId);
+      let usedFallback = false;
+      let llmError = llmConfig.apiKey ? null : {
+        code: 'missing_api_key',
+        message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成。`
+      };
+      // 用「伪剧集」承载本场：复用同集 id 以便连续性查找，标题/正文用本场。
+      const pseudoEpisode = { id: episode.id, number: episode.number, title: `${episode.title} · ${scene.name}`, script: scene.script };
+      let output = null;
+      try {
+        output = await callLLM({ skill: skill.content, project, episode: pseudoEpisode, settings, llm });
+      } catch (error) {
+        if (!llmError) llmError = parseLlmError(error.message);
+        console.warn(`Scene LLM fell back: ${error.message}`);
+      }
+      if (!output) { usedFallback = true; output = fallbackGenerateByTemplate({ project, episode: pseudoEpisode, settings, skillTemplate: skill.template }); }
+
+      finishJob(jobId, {
+        markdown: output.markdown,
+        usedFallback,
+        provider: llmConfig.providerName,
+        model: llmConfig.model,
+        apiKeySource: llmConfig.apiKeySource,
+        llmError
+      });
+    })().catch((error) => {
+      console.error(`Scene job failed: ${error.message}`);
+      failJob(jobId, parseLlmError(error.message));
+    });
   } catch (error) {
     next(error);
   }
