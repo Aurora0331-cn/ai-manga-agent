@@ -53,6 +53,12 @@ function App() {
   const [theme, setTheme] = useState(loadTheme);
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
+  // 提示消息 3 秒后自动消失
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(''), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [dockPos, setDockPos] = useState(loadDockPos);
   const [providers, setProviders] = useState([]);

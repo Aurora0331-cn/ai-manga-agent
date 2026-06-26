@@ -16,10 +16,10 @@
   --accent-soft: #ece9ff;
   --accent-grad: linear-gradient(135deg, #6d5dfb 0%, #9333ea 100%);
   --accent-glow: rgba(109, 93, 251, 0.35);
-  --code-bg: #14172a;
-  --code-border: #20243a;
-  --code-text: #eef0fc;
-  --code-scroll: #353a55;
+  --code-bg: #f7f8fc;
+  --code-border: #e7e9f2;
+  --code-text: #0b0b14;
+  --code-scroll: #d3d6e2;
   --overlay: rgba(18, 20, 38, 0.5);
   --radius-sm: 9px;
   --radius: 14px;
