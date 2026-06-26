@@ -569,8 +569,12 @@ function App() {
                 {project.episodes.map((episode) => (
                   <button key={episode.id}
                     className={`episode-item ${selectedIds.includes(episode.id) ? 'selected' : ''} ${focusedEpisodeId === episode.id ? 'focused' : ''}`}
-                    onClick={() => { toggleEpisode(episode.id); setFocusedEpisodeId(episode.id); }}>
-                    <span className="ep-card-check">{selectedIds.includes(episode.id) ? <CheckSquare size={15} /> : <Square size={15} />}</span>
+                    title="点击只选这一集；勾选框可多选"
+                    onClick={() => { setSelectedIds([episode.id]); setFocusedEpisodeId(episode.id); }}>
+                    <span className="ep-card-check" role="checkbox" aria-checked={selectedIds.includes(episode.id)}
+                      onClick={(e) => { e.stopPropagation(); toggleEpisode(episode.id); setFocusedEpisodeId(episode.id); }}>
+                      {selectedIds.includes(episode.id) ? <CheckSquare size={15} /> : <Square size={15} />}
+                    </span>
                     <span className="episode-number">第 {episode.number} 集</span>
                     <strong>{episode.title}</strong>
                     <small>{episode.summary}</small>
