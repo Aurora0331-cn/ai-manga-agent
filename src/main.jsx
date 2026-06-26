@@ -741,7 +741,7 @@ function App() {
 
               <div className="ep-output">
                 <div className="result-head">
-                  <h3>分镜提示词{fScene ? ` · ${fScene.name}` : ''}{parsed ? `（${parsed.shots.length} 个镜头）` : ''}</h3>
+                  <h3>分镜提示词{fScene ? ` · ${fScene.name}` : ''}{parsed ? `（${parsed.shots.length} 个分镜）` : ''}</h3>
                   <div className="actions">
                     {fScene && (
                       <button className="primary" onClick={generateScene} disabled={loading === 'scene'}>
@@ -767,7 +767,7 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="empty-state">{fScene ? '点「生成本场分镜」生成该场分镜，将按镜头（每段约 4-15 秒）分段、可单独复制。' : '展开剧集并选择一个场次后，点「生成本场分镜」。'}</div>
+                  <div className="empty-state">{fScene ? '点「生成本场分镜」生成该场分镜，将按镜号（每段约 4-15 秒）分段、可单独复制。' : '展开剧集并选择一个场次后，点「生成本场分镜」。'}</div>
                 )}
               </div>
             </div>
@@ -896,15 +896,15 @@ function parseShots(md = '') {
   const text = String(md || '').trim();
   if (!text) return { head: '', shots: [] };
   // 镜头头：## 镜头N / ### 第N组 / 【镜头N】 等
-  const re = /\n(?=(?:#{2,4}\s*)?(?:镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜头))/;
+  const re = /\n(?=(?:#{2,4}\s*)?(?:镜号\s*[一二三四五六七八九十\d]+|镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜[头号]))/;
   const parts = text.split(re).map((p) => p.trim()).filter(Boolean);
   const shots = [];
   let head = '';
   parts.forEach((p, i) => {
-    const isShot = /^(?:#{2,4}\s*)?(?:镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜头)/.test(p);
+    const isShot = /^(?:#{2,4}\s*)?(?:镜号\s*[一二三四五六七八九十\d]+|镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜]|【\s*镜[头号])/.test(p);
     if (i === 0 && !isShot) { head = p; return; }
-    const m = p.match(/^(?:#{2,4}\s*)?【?\s*(镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜][^\n】]*)/);
-    const name = m ? m[1].replace(/[#【】]/g, '').trim() : `镜头 ${shots.length + 1}`;
+    const m = p.match(/^(?:#{2,4}\s*)?【?\s*(镜号\s*[一二三四五六七八九十\d]+[^\n】]*|镜头\s*[一二三四五六七八九十\d]+|第\s*[一二三四五六七八九十\d]+\s*[组镜][^\n】]*)/);
+    const name = m ? m[1].replace(/[#【】]/g, '').trim() : `镜号 ${shots.length + 1}`;
     shots.push({ name, text: p });
   });
   if (!shots.length) shots.push({ name: '全部', text });
