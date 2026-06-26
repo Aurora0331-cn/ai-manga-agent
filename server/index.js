@@ -41,7 +41,8 @@ const builtInSkillTemplates = [
     description: '竖屏真人 Seedance 2.0 视频提示词',
     path: verticalRealPersonSkillPath,
     source: 'built-in',
-    kind: 'video'
+    kind: 'video',
+    outputMode: 'skill-native'
   },
   {
     id: 'template-3',
@@ -49,7 +50,8 @@ const builtInSkillTemplates = [
     description: '横屏真人 16:9 Seedance 2.0 视频提示词',
     path: horizontalRealPersonSkillPath,
     source: 'built-in',
-    kind: 'video'
+    kind: 'video',
+    outputMode: 'skill-native'
   },
   {
     id: 'asset-default',
@@ -966,15 +968,43 @@ async function chatCompletion(config, payload, { retriedWithoutJsonMode = false 
   return response.json();
 }
 
-async function callLLM({ skill, project, episode, settings, llm }) {
+async function callLLM({ skill, project, episode, settings, llm, skillTemplate }) {
   const config = resolveLlmConfig(llm);
   if (!config.apiKey) return null;
   console.info(`Calling ${config.providerName} ${config.model} with key ${config.apiKeySource} ${config.apiKeyHint}`);
 
   const continuity = project.bible.episodeContinuity.find((item) => item.episodeId === episode.id);
+  const outputMode = skillTemplate?.outputMode || 'modules';
+
+  // skill-native：完全按所选 SKILL 自带的"输出模板/输出结构"产出，不套用工业化六模块格式。
+  const skillNativeMessages = [
+    {
+      role: 'system',
+      content: `你是专业的短剧/漫剧分镜提示词生成专家。必须严格遵守以下硬规则：
+1. 不得修改、增删、合并剧情；台词逐句提取，原文标点完整保留（逗号=短停顿、问号=尾音上扬、省略号=气口）。
+2. 跨集一致性：同一角色/场景/道具在全剧保持视觉设定不漂移，严格参考下方 globalBible 与 continuity，不新增原文未写明的人物方位或道具。
+3. 严格按 settings 的画幅、视觉风格、文戏强度执行，画幅在每条提示词中显式标注。
+4. 【输出格式最重要】必须完全遵循下方 SKILL 中定义的"输出模板 / 输出硬性规则 / 输出结构"，严格按该 SKILL 的专业格式产出最终成片；不要套用六模块等任何其它模板的结构。
+5. 仅输出一个 JSON 对象，键为 markdown（值为按 SKILL 格式排好的完整中文提示词成片）；不要用代码块包裹，不要任何解释性文字。
+
+【SKILL（输出格式与专业规范的唯一依据，必须严格遵循）】
+${skill.slice(0, 30000)}`
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        task: '为"当前单集/场次"严格按上方 SKILL 的输出模板与专业规范，生成完整的中文分镜提示词成片。',
+        settings,
+        globalBible: project.bible,
+        continuity,
+        episode: { title: episode.title, script: episode.script }
+      })
+    }
+  ];
+
   const payload = {
     model: config.model,
-    messages: [
+    messages: outputMode === 'skill-native' ? skillNativeMessages : [
       {
         role: 'system',
         content: `你是「AI漫剧/短剧提示词工业化生成智能体」，为单集剧本产出可直接用于 AI 绘画与 AI 视频的中文提示词。
@@ -1233,7 +1263,7 @@ app.post('/api/projects/:projectId/scene-generate', async (req, res, next) => {
       const pseudoEpisode = { id: episode.id, number: episode.number, title: `${episode.title} · ${scene.name}`, script: scene.script };
       let output = null;
       try {
-        output = await callLLM({ skill: skill.content, project, episode: pseudoEpisode, settings, llm });
+        output = await callLLM({ skill: skill.content, project, episode: pseudoEpisode, settings, llm, skillTemplate: skill.template });
       } catch (error) {
         if (!llmError) llmError = parseLlmError(error.message);
         console.warn(`Scene LLM fell back: ${error.message}`);
@@ -1286,7 +1316,7 @@ app.post('/api/projects/:projectId/generate', async (req, res, next) => {
       const outputs = await mapWithConcurrency(selected, concurrency, async (episode) => {
         let llmOutput = null;
         try {
-          llmOutput = await callLLM({ skill: skill.content, project, episode, settings, llm });
+          llmOutput = await callLLM({ skill: skill.content, project, episode, settings, llm, skillTemplate: skill.template });
         } catch (error) {
           if (!llmError) llmError = parseLlmError(error.message);
           console.warn(`LLM generation fell back for ${episode.title}: ${error.message}`);
