@@ -283,6 +283,28 @@ function App() {
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
 
+  // 用 LLM 通读剧本，重新智能识别真实的角色/场景/道具，替换规则识别结果。
+  async function analyzeAssets() {
+    if (!project) return;
+    setLoading('asset-analyze');
+    setNotice('');
+    try {
+      const data = await runJob(`${API}/projects/${project.id}/assets/analyze`, { llm });
+      if (data.usedFallback || !data.bible) {
+        setNotice(`智能识别失败：${mapLlmError(data.llmError)}。已保留原识别结果。`);
+        return;
+      }
+      setProject((p) => ({ ...p, bible: data.bible }));
+      // 清空旧的选择与已生成内容（清单已变）
+      setAssetSel({ characters: [], scenes: [], props: [] });
+      setAssetItems({});
+      setAssetAges({});
+      setAssetView(null);
+      const c = data.counts || {};
+      setNotice(`已用 ${data.provider} / ${data.model} 重新识别：角色 ${c.characters} · 场景 ${c.scenes} · 道具 ${c.props}。`);
+    } catch (error) { setNotice(error.message); } finally { setLoading(''); }
+  }
+
   async function generateOne(type, name) {
     if (!project) return;
     setLoading(`asset-${type}-${name}`);
@@ -459,6 +481,9 @@ function App() {
                 </button>
               );
             })}
+            <button className="secondary asset-analyze-btn" onClick={analyzeAssets} disabled={loading === 'asset-analyze'} title="用 LLM 通读剧本，重新识别真实的角色/场景/道具">
+              {loading === 'asset-analyze' ? <RefreshCw className="spin" size={15} /> : <Sparkles size={15} />}智能识别资产
+            </button>
           </div>
 
           <div className="asset-toolbar">
