@@ -1008,7 +1008,7 @@ ${skill.slice(0, 30000)}`
       }
     ],
     temperature: config.temperature,
-    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 8000
+    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 32000
   };
   // JSON 模式：OpenAI/DeepSeek 支持；不支持的供应商会在 chatCompletion 内自动重试去掉。
   if ((process.env.LLM_JSON_MODE || 'true') !== 'false') {
@@ -1016,12 +1016,23 @@ ${skill.slice(0, 30000)}`
   }
 
   const data = await chatCompletion(config, payload);
-  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  const choice = data.choices?.[0] || {};
+  const msg = choice.message || {};
+  const finishReason = choice.finish_reason;
+  const content = stripMarkdownFence(msg.content || msg.reasoning_content || '');
+  console.info(`LLM done for ${episode.title}: finish_reason=${finishReason} usage=${JSON.stringify(data.usage || {})} contentLen=${content.length}`);
+  if (finishReason === 'length') {
+    console.warn(`LLM output truncated (finish_reason=length) for ${episode.title}; consider raising LLM_MAX_TOKENS.`);
+  }
+  // 内容过短/被截断：视为生成失败，抛错让上层走本地兜底（而不是把一句开场白当成成片）。
+  if (content.trim().length < 300 || finishReason === 'length') {
+    throw new Error(`LLM 返回内容不完整（finish_reason=${finishReason}，长度=${content.trim().length}）。若为推理模型，请调高 LLM_MAX_TOKENS。`);
+  }
   let parsed;
   try {
     parsed = parseLlmJson(content);
   } catch (error) {
-    console.warn(`LLM JSON parse failed for ${episode.title}; using raw markdown. ${error.message}`);
+    console.warn(`LLM JSON parse failed for ${episode.title}; using raw markdown. finish_reason=${finishReason} ${error.message}`);
     parsed = {
       modules: {
         videoPrompts: content
