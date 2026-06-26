@@ -78,6 +78,7 @@ function App() {
   const [assetItems, setAssetItems] = useState({}); // key `${type}|${name}` -> prompt
   const [assetView, setAssetView] = useState(null); // {type, name}
   const [assetAges, setAssetAges] = useState({}); // 角色名 -> 出镜年龄
+  const [newAssetName, setNewAssetName] = useState(''); // 手动添加资产输入
   const [styleTone, setStyleTone] = useState(''); // 参考风格基调（仅用于场景）
 
   // 剧集提示词
@@ -300,11 +301,30 @@ function App() {
       // 清空旧的选择与已生成内容（清单已变）
       setAssetSel({ characters: [], scenes: [], props: [] });
       setAssetItems({});
-      setAssetAges({});
+      setAssetAges(data.ages || {}); // 剧本有年龄则自动填入年龄确认表
       setAssetView(null);
       const c = data.counts || {};
       setNotice(`已用 ${data.provider} / ${data.model} 重新识别：角色 ${c.characters} · 场景 ${c.scenes} · 道具 ${c.props}。`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
+  }
+
+  // 手动添加一个资产到当前分类（角色添加后年龄确认表会自动多出一行）。
+  function addAsset() {
+    const name = newAssetName.trim();
+    if (!project || !name) return;
+    if (bibleNames(assetCat).includes(name)) { setNewAssetName(''); return; }
+    setProject((p) => {
+      const bible = { ...p.bible };
+      if (assetCat === 'characters') {
+        bible.characters = [...bible.characters, { name, visual: `${name}固定视觉设定：保持同一脸型、发型、服装主色和核心记忆点，跨集不得漂移。`, arc: '根据每集结尾情绪和关系变化递进，不跳跃。' }];
+      } else if (assetCat === 'scenes') {
+        bible.scenes = [...bible.scenes, { name, description: `${name}的空间环境。` }];
+      } else {
+        bible.props = [...bible.props, { name, rule: `${name}作为关键道具出现时，材质、磨损、比例和持有关系保持一致。` }];
+      }
+      return { ...p, bible };
+    });
+    setNewAssetName('');
   }
 
   async function generateOne(type, name) {
@@ -504,6 +524,13 @@ function App() {
                 {bibleNames(assetCat).length && assetSel[assetCat].length === bibleNames(assetCat).length ? '取消全选' : '全选本类'}
               </button>
               <span className="muted-cap">已选 {assetSel[assetCat].length}/{bibleNames(assetCat).length}</span>
+              <span className="add-asset">
+                <input value={newAssetName}
+                  placeholder={`添加${ASSET_GROUPS.find((g) => g.key === assetCat)?.label || '资产'}…`}
+                  onChange={(e) => setNewAssetName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addAsset(); }} />
+                <button className="link-btn" onClick={addAsset} disabled={!newAssetName.trim()}>+ 添加</button>
+              </span>
             </div>
             <div className="actions">
               <button className="primary asset-gen-btn" onClick={generateAssets} disabled={loading === 'assets' || assetTotal === 0}>

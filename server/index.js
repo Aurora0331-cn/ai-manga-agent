@@ -1364,10 +1364,10 @@ async function callAssetAnalyzeLLM({ script, llm }) {
       {
         role: 'system',
         content: `你是专业的剧本分析助手。通读用户提供的剧本，识别出需要制作美术资产的三类对象：
-① 角色：有明确身份的人物（主角、配角、有台词或关键表演的人）。严禁把动作提示、旁白、OS/VO、字幕、场景名、台词内容当成角色；同一人物的不同称呼/带括号动作合并为一个标准姓名（如「冯衍（放下茶盏）」→「冯衍」）。
+① 角色：有明确身份的人物（主角、配角、有台词或关键表演的人）。严禁把动作提示、旁白、OS/VO、字幕、场景名、台词内容当成角色；同一人物的不同称呼/带括号动作合并为一个标准姓名（如「冯衍（放下茶盏）」→「冯衍」）。并尽量给出该角色在剧本中的年龄：剧本明确写出或可明确推断时填数字或区间（如 "28" 或 "25-30"），不确定就留空字符串。
 ② 场景：故事发生的空间地点（如「宗人府」「西街」「冯府书房」「全国陶瓷技艺大赛现场」），给一句话简短描述。不要把台词行或人物当场景。
 ③ 关键道具：剧情中重要、反复出现或有近景特写的物件（如「银鱼袋」「策论」「日记本」）。不要列没有剧情意义的通用物件。
-只输出一个 JSON 对象，结构为：{"characters":[{"name":""}],"scenes":[{"name":"","description":""}],"props":[{"name":""}]}。每类去重、按重要性排序；角色最多 24 个、场景最多 24 个、道具最多 16 个。不要输出任何解释或代码块。`
+只输出一个 JSON 对象，结构为：{"characters":[{"name":"","age":""}],"scenes":[{"name":"","description":""}],"props":[{"name":""}]}。每类去重、按重要性排序；角色最多 24 个、场景最多 24 个、道具最多 16 个。不要输出任何解释或代码块。`
       },
       { role: 'user', content: `剧本如下：\n${String(script || '').slice(0, 100000)}` }
     ],
@@ -1381,8 +1381,11 @@ async function callAssetAnalyzeLLM({ script, llm }) {
   try { parsed = parseLlmJson(content); } catch { parsed = {}; }
   const arr = (v) => (Array.isArray(v) ? v : []);
   const cleanName = (s) => String((s && typeof s === 'object') ? (s.name ?? '') : (s ?? '')).replace(/^@+/, '').replace(/[（(][^）)]*[）)]/g, '').trim();
-  // 三类各自独立去重
-  const cSeen = new Set(); const characters = arr(parsed.characters).map(cleanName).filter((n) => n && !cSeen.has(n) && cSeen.add(n));
+  // 角色携带年龄；三类各自独立去重
+  const cSeen = new Set();
+  const characters = arr(parsed.characters)
+    .map((c) => ({ name: cleanName(c), age: String((c && c.age != null) ? c.age : '').trim() }))
+    .filter((c) => c.name && !cSeen.has(c.name) && cSeen.add(c.name));
   const sSeen = new Set(); const scenes = arr(parsed.scenes).map((s) => ({ name: cleanName(s), description: String((s && s.description) || '').trim() })).filter((s) => s.name && !sSeen.has(s.name) && sSeen.add(s.name));
   const pSeen = new Set(); const props = arr(parsed.props).map(cleanName).filter((n) => n && !pSeen.has(n) && pSeen.add(n));
   return { provider: config.providerName, model: config.model, characters, scenes, props };
@@ -1434,13 +1437,15 @@ app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
         if (!llmError) llmError = parseLlmError(error.message);
         console.warn(`Asset analyze fell back: ${error.message}`);
       }
+      const ages = {};
       if (result && (result.characters.length || result.scenes.length || result.props.length)) {
         // 只替换三类清单，保留 episodeContinuity（剧集生成要用）。
-        project.bible.characters = result.characters.map((name) => ({
-          name,
-          visual: `${name}固定视觉设定：保持同一脸型、发型、服装主色和核心记忆点，跨集不得漂移。`,
+        project.bible.characters = result.characters.map((c) => ({
+          name: c.name,
+          visual: `${c.name}固定视觉设定：保持同一脸型、发型、服装主色和核心记忆点，跨集不得漂移。`,
           arc: '根据每集结尾情绪和关系变化递进，不跳跃。'
         }));
+        result.characters.forEach((c) => { if (c.age) ages[c.name] = c.age; }); // 剧本有年龄就回传，前端自动填入
         project.bible.scenes = result.scenes.map((s) => ({ name: s.name, description: s.description || `${s.name}的空间环境。` }));
         project.bible.props = result.props.map((name) => ({ name, rule: `${name}作为关键道具出现时，材质、磨损、比例和持有关系保持一致。` }));
         await persistProject(project);
@@ -1449,6 +1454,7 @@ app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
       }
       finishJob(jobId, {
         bible: project.bible,
+        ages,
         usedFallback,
         provider: llmConfig.providerName,
         model: llmConfig.model,
