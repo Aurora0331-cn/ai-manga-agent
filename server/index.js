@@ -17,6 +17,7 @@ const dataDir = path.resolve(rootDir, 'data', 'projects');
 const defaultSkillPath = path.resolve(rootDir, 'skills', 'template-1-video-prompt-industrial-skill-v1.9.3.md');
 const skillUploadDir = path.resolve(rootDir, 'skill-templates');
 const verticalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-2-vertical-real-person-prompt.txt');
+const horizontalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-3-horizontal-real-person-prompt.txt');
 const assetSkillPath = path.resolve(rootDir, 'skills', 'template-asset-art-asset-prompt.md');
 
 const app = express();
@@ -39,6 +40,14 @@ const builtInSkillTemplates = [
     name: '模板二·竖屏真人',
     description: '竖屏真人 Seedance 2.0 视频提示词',
     path: verticalRealPersonSkillPath,
+    source: 'built-in',
+    kind: 'video'
+  },
+  {
+    id: 'template-3',
+    name: '横板真人提示词',
+    description: '横屏真人 16:9 Seedance 2.0 视频提示词',
+    path: horizontalRealPersonSkillPath,
     source: 'built-in',
     kind: 'video'
   },
