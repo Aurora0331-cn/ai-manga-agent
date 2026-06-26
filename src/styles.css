@@ -249,6 +249,23 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .add-asset input { width: 130px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--surface); color: var(--text); font-size: 12.5px; }
 .add-asset input::placeholder { color: var(--text-faint); }
 .add-asset input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+
+/* ===== 角色造型块 ===== */
+.outfit-count { font-style: normal; font-size: 12.5px; font-weight: 500; color: var(--text-muted); }
+.outfit-list { display: flex; flex-direction: column; gap: 12px; }
+.outfit-anchor { border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 12px; background: var(--accent-soft); }
+.outfit-anchor-tag { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+.outfit-anchor .markdown-view { min-height: 0; max-height: 160px; }
+.outfit-block { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--surface-2); }
+.outfit-block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.outfit-name { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.outfit-block-head .secondary { min-height: 30px; padding: 0 10px; font-size: 12.5px; }
+.outfit-block .markdown-view { min-height: 0; max-height: 300px; }
+.add-outfit { display: flex; gap: 8px; align-items: center; border-top: 1px dashed var(--border-strong); padding-top: 12px; }
+.add-outfit input { flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--surface); color: var(--text); font-size: 13px; }
+.add-outfit input::placeholder { color: var(--text-faint); }
+.add-outfit input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.add-outfit .secondary { white-space: nowrap; }
 .asset-tab { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 9px 16px; font-size: 13.5px; font-weight: 650; color: var(--text); transition: all 0.18s ease; }
 .asset-tab svg { color: var(--text-faint); }
 .asset-tab em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--text-muted); }

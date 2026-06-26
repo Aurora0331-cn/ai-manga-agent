@@ -79,6 +79,7 @@ function App() {
   const [assetView, setAssetView] = useState(null); // {type, name}
   const [assetAges, setAssetAges] = useState({}); // 角色名 -> 出镜年龄
   const [newAssetName, setNewAssetName] = useState(''); // 手动添加资产输入
+  const [outfitInput, setOutfitInput] = useState(''); // 添加造型描述输入
   const [styleTone, setStyleTone] = useState(''); // 参考风格基调（仅用于场景）
 
   // 剧集提示词
@@ -325,6 +326,26 @@ function App() {
       return { ...p, bible };
     });
     setNewAssetName('');
+  }
+
+  // 为当前角色增补一个造型：复用已生成的面部锚点，只换服饰发型，面部五官保持一致。
+  async function addOutfit() {
+    const desc = outfitInput.trim();
+    if (!project || !assetView || assetView.type !== 'characters' || !desc) return;
+    const name = assetView.name;
+    const { anchor } = parseCharacterOutfits(assetItems[assetKey('characters', name)] || '');
+    if (!anchor) { setNotice('请先点「生成此项」生成该角色，得到面部锚点后再添加造型。'); return; }
+    setLoading('outfit');
+    setNotice('');
+    try {
+      const data = await runJob(`${API}/projects/${project.id}/assets/outfit`,
+        { character: name, anchor, outfit: desc, settings, llm, age: assetAges[name] || '', skillTemplateId: assetSkillId });
+      if (data.usedFallback || !data.prompt) { setNotice(`添加造型失败：${mapLlmError(data.llmError)}。`); return; }
+      const block = `\n\n#### @${name}_${desc}\n${data.prompt}`;
+      setAssetItems((prev) => ({ ...prev, [assetKey('characters', name)]: (prev[assetKey('characters', name)] || '') + block }));
+      setOutfitInput('');
+      setNotice(`已为「${name}」增补造型：${desc}。`);
+    } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
 
   async function generateOne(type, name) {
@@ -579,25 +600,57 @@ function App() {
             </div>
 
             <div className="asset-detail">
-              {assetView ? (
-                <>
-                  <div className="asset-detail-head">
-                    <h3>{assetView.name}</h3>
-                    <div className="actions">
-                      {assetItems[assetKey(assetView.type, assetView.name)] && (
-                        <button className="secondary" onClick={() => copyText(assetItems[assetKey(assetView.type, assetView.name)], '已复制该资产提示词。')}><Copy size={14} />复制</button>
-                      )}
-                      <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
-                        {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
-                        {assetItems[assetKey(assetView.type, assetView.name)] ? '重新生成' : '生成此项'}
-                      </button>
+              {assetView ? (() => {
+                const raw = assetItems[assetKey(assetView.type, assetView.name)] || '';
+                const isChar = assetView.type === 'characters';
+                const parsed = isChar ? parseCharacterOutfits(raw) : null;
+                return (
+                  <>
+                    <div className="asset-detail-head">
+                      <h3>{assetView.name}{isChar && raw ? <em className="outfit-count"> · {parsed.outfits.length} 个造型</em> : null}</h3>
+                      <div className="actions">
+                        {raw && <button className="secondary" onClick={() => copyText(raw, '已复制该资产全部提示词。')}><Copy size={14} />复制全部</button>}
+                        <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
+                          {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
+                          {raw ? '重新生成' : '生成此项'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  {assetItems[assetKey(assetView.type, assetView.name)]
-                    ? <pre className="markdown-view">{assetItems[assetKey(assetView.type, assetView.name)]}</pre>
-                    : <div className="empty-state">该资产尚未生成。点「生成此项」单独生成，或在上方「生成选中」批量生成。</div>}
-                </>
-              ) : <div className="empty-state">点击左侧资产卡片，查看或生成它的文生图提示词。</div>}
+
+                    {!raw && <div className="empty-state">该资产尚未生成。点「生成此项」单独生成，或在上方「生成选中」批量生成。</div>}
+
+                    {raw && isChar && (
+                      <div className="outfit-list">
+                        {parsed.anchor && (
+                          <div className="outfit-anchor">
+                            <div className="outfit-anchor-tag">面部锚点（全状态固定 · 所有造型共用同一张脸）</div>
+                            <pre className="markdown-view">{parsed.anchor}</pre>
+                          </div>
+                        )}
+                        {parsed.outfits.map((o, i) => (
+                          <div key={i} className="outfit-block">
+                            <div className="outfit-block-head">
+                              <span className="outfit-name">{o.name}</span>
+                              <button className="secondary" onClick={() => copyText(o.prompt, '已复制该造型提示词。')}><Copy size={13} />复制</button>
+                            </div>
+                            <pre className="markdown-view">{o.prompt}</pre>
+                          </div>
+                        ))}
+                        <div className="add-outfit">
+                          <input value={outfitInput} placeholder="添加造型：描述服饰/发型，如 红色礼服+束发"
+                            onChange={(e) => setOutfitInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') addOutfit(); }} />
+                          <button className="secondary" onClick={addOutfit} disabled={loading === 'outfit' || !outfitInput.trim()}>
+                            {loading === 'outfit' ? <RefreshCw className="spin" size={13} /> : <Sparkles size={13} />}添加造型
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {raw && !isChar && <pre className="markdown-view">{raw}</pre>}
+                  </>
+                );
+              })() : <div className="empty-state">点击左侧资产卡片，查看或生成它的文生图提示词。</div>}
             </div>
           </div>
         </Modal>
@@ -778,6 +831,30 @@ async function readJson(res) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '请求失败');
   return data;
+}
+
+// 把角色的整段提示词拆成「面部锚点」+ 各造型块（#### / ### 子节）。
+function parseCharacterOutfits(md = '') {
+  const text = String(md || '').trim();
+  if (!text) return { anchor: '', outfits: [] };
+  const idx = text.search(/(^|\n)#{3,4}\s/);
+  let anchor = '';
+  let rest = text;
+  if (idx >= 0) {
+    anchor = text.slice(0, idx).replace(/^#{1,3}\s*.+\n?/, '').trim(); // 去掉「### @角色名」标题行，保留面部锚点
+    rest = text.slice(idx).replace(/^\n/, '');
+  }
+  const outfits = [];
+  for (const part of rest.split(/\n(?=#{3,4}\s)/)) {
+    const m = part.match(/^#{3,4}\s*(.+?)\s*(?:\n([\s\S]*))?$/);
+    if (m) outfits.push({ name: m[1].replace(/^@/, '').trim(), prompt: (m[2] || '').trim() });
+  }
+  if (!outfits.length) {
+    // 没有子标题：整段当作一个默认造型；锚点取含「面部锚点」的那段（若有）
+    const anchorMatch = text.match(/(面部锚点[\s\S]*?)(?:\n\n|$)/);
+    return { anchor: anchorMatch ? anchorMatch[1].trim() : '', outfits: [{ name: '默认造型', prompt: text }] };
+  }
+  return { anchor, outfits };
 }
 
 // 发起生成任务并轮询结果：后端立即返回 jobId，前端每隔几秒查一次。

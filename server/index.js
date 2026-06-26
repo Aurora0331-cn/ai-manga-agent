@@ -1391,6 +1391,36 @@ async function callAssetAnalyzeLLM({ script, llm }) {
   return { provider: config.providerName, model: config.model, characters, scenes, props };
 }
 
+// 为已有角色增补一个造型：复用给定的面部锚点，只改服饰发型，输出单段文生图提示词。
+async function callOutfitLLM({ skill, character, anchor, outfit, settings, age, llm }) {
+  const config = resolveLlmConfig(llm);
+  if (!config.apiKey) return null;
+  const style = settings.visualStyle || '';
+  const payload = {
+    model: config.model,
+    messages: [
+      {
+        role: 'system',
+        content: `你是「美术资产提示词生成专家」，为一个已有角色增补一个新造型（换装/换发型/新状态）。硬规则：
+① 必须完整沿用给定的【面部锚点】——脸型、骨相、五官结构、核心视觉记忆点与年龄完全一致，只改变服饰、妆发、配饰等造型变量，绝不另起一张脸。
+② 比例固定 21:9，纯白无缝背景，仅呈现角色本体、服装与随身饰品；不写场景、道具、镜头、运镜。
+③ 只输出该造型的一段中文文生图提示词正文，不要 JSON、不要标题、不要解释、不要代码块。
+④ 中文句末之后原样附加固定英文尾缀【Remove the noise and high-frequency details from the image. Keep all the lines, colors, and brightness unchanged.】。
+请遵循下方 SKILL 的风格与质感规范。
+
+【参考 SKILL（美术资产风格规范）】
+${String(skill || '').slice(0, 16000)}`
+      },
+      { role: 'user', content: JSON.stringify({ 角色: character, 出镜年龄: age || '按面部锚点为准', 新造型描述: outfit, 视觉风格: style, 必须沿用的面部锚点: anchor }) }
+    ],
+    temperature: config.temperature,
+    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 4000
+  };
+  const data = await chatCompletion(config, payload);
+  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '').trim();
+  return { provider: config.providerName, model: config.model, prompt: content };
+}
+
 // 从一段 markdown 里按"角色/场景/道具"一级或二级标题分区，重建 modules。
 function extractAssetModulesFromMarkdown(md = '') {
   const out = { characters: '', scenes: '', props: '' };
@@ -1413,6 +1443,41 @@ function extractAssetModulesFromMarkdown(md = '') {
   }
   return out;
 }
+
+// 为角色增补造型：复用面部锚点，返回单段提示词。
+app.post('/api/projects/:projectId/assets/outfit', async (req, res, next) => {
+  try {
+    const project = projects.get(req.params.projectId);
+    if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
+    const { character = '', anchor = '', outfit = '', settings = {}, llm = {}, age = '', skillTemplateId = 'template-1' } = req.body;
+    if (!character || !outfit) return res.status(400).json({ error: '缺少角色或造型描述。' });
+    settings.visualStyle = expandStyle(settings.visualStyle);
+    const llmConfig = resolveLlmConfig(llm);
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
+
+    (async () => {
+      let usedFallback = false;
+      let llmError = llmConfig.apiKey ? null : { code: 'missing_api_key', message: `未填写 ${llmConfig.providerName} 的 API Key。` };
+      let result = null;
+      try {
+        const skill = await readSkill(skillTemplateId);
+        result = await callOutfitLLM({ skill: skill.content, character, anchor, outfit, settings, age, llm });
+      } catch (error) {
+        if (!llmError) llmError = parseLlmError(error.message);
+        console.warn(`Outfit LLM failed: ${error.message}`);
+      }
+      const prompt = (result && result.prompt) || '';
+      if (!prompt) usedFallback = true;
+      finishJob(jobId, { prompt, usedFallback, provider: llmConfig.providerName, model: llmConfig.model, llmError });
+    })().catch((error) => {
+      console.error(`Outfit job failed: ${error.message}`);
+      failJob(jobId, parseLlmError(error.message));
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // 智能识别资产：用 LLM 通读剧本，重建 project.bible 的角色/场景/道具清单。
 app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
