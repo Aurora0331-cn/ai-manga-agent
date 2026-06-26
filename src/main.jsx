@@ -210,7 +210,9 @@ function App() {
     setNotice('');
     try {
       const form = new FormData();
-      if (file) form.append('scriptFile', file);
+      // txt/md 已读入文本框（可编辑），用文本框内容解析；docx 交后端提取。
+      const ext = file ? (file.name.toLowerCase().split('.').pop() || '') : '';
+      if (file && ext !== 'txt' && ext !== 'md') form.append('scriptFile', file);
       form.append('script', script);
       form.append('name', 'AI 漫剧项目');
       const res = await fetch(`${API}/projects/parse`, { method: 'POST', body: form });
@@ -413,7 +415,17 @@ function App() {
           <label className="upload-box">
             <Upload size={18} />
             <span>{file ? file.name : '上传 TXT / DOCX'}</span>
-            <input type="file" accept=".txt,.md,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            <input type="file" accept=".txt,.md,.docx" onChange={async (e) => {
+              const f = e.target.files?.[0] || null;
+              setFile(f);
+              if (!f) return;
+              const ext = (f.name.toLowerCase().split('.').pop() || '');
+              if (ext === 'txt' || ext === 'md') {
+                try { setScript(await f.text()); } catch { /* 读取失败则保留文件，交后端解析 */ }
+              } else {
+                setScript(`（已上传 ${f.name}，点击「解析剧本」后将自动提取其文本）`);
+              }
+            }} />
           </label>
           <textarea value={script} onChange={(e) => setScript(e.target.value)} />
           <button className="primary" onClick={parseProject} disabled={loading === 'parse'}>
