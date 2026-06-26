@@ -1008,7 +1008,7 @@ ${skill.slice(0, 30000)}`
       }
     ],
     temperature: config.temperature,
-    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 32000
+    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 16000
   };
   // JSON 模式：OpenAI/DeepSeek 支持；不支持的供应商会在 chatCompletion 内自动重试去掉。
   if ((process.env.LLM_JSON_MODE || 'true') !== 'false') {
