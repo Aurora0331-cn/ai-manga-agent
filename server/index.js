@@ -985,7 +985,7 @@ async function callLLM({ skill, project, episode, settings, llm, skillTemplate }
 2. 跨集一致性：同一角色/场景/道具在全剧保持视觉设定不漂移，严格参考下方 globalBible 与 continuity，不新增原文未写明的人物方位或道具。
 3. 严格按 settings 的画幅、视觉风格、文戏强度执行，画幅在每条提示词中显式标注。
 4. 【输出格式最重要】必须完全遵循下方 SKILL 中定义的"输出模板 / 输出硬性规则 / 输出结构"，严格按该 SKILL 的专业格式产出最终成片；不要套用六模块等任何其它模板的结构。
-5. 仅输出一个 JSON 对象，键为 markdown（值为按 SKILL 格式排好的完整中文提示词成片）；不要用代码块包裹，不要任何解释性文字。
+5. 直接以 Markdown 输出按 SKILL 格式排好的完整中文提示词成片；不要输出 JSON、不要用代码块包裹、不要任何解释性文字。
 
 【SKILL（输出格式与专业规范的唯一依据，必须严格遵循）】
 ${skill.slice(0, 30000)}`
@@ -1049,8 +1049,8 @@ ${skill.slice(0, 30000)}`
     temperature: config.temperature,
     max_tokens: Number(process.env.LLM_MAX_TOKENS) || 16000
   };
-  // JSON 模式：OpenAI/DeepSeek 支持；不支持的供应商会在 chatCompletion 内自动重试去掉。
-  if ((process.env.LLM_JSON_MODE || 'true') !== 'false') {
+  // JSON 模式：OpenAI/DeepSeek 支持；不支持的供应商会在 chatCompletion 内自动重试去掉。skill-native 走纯 Markdown，不开 JSON 模式。
+  if (outputMode !== 'skill-native' && (process.env.LLM_JSON_MODE || 'true') !== 'false') {
     payload.response_format = { type: 'json_object' };
   }
 
@@ -1066,6 +1066,20 @@ ${skill.slice(0, 30000)}`
   // 内容过短/被截断：视为生成失败，抛错让上层走本地兜底（而不是把一句开场白当成成片）。
   if (content.trim().length < 300 || finishReason === 'length') {
     throw new Error(`LLM 返回内容不完整（finish_reason=${finishReason}，长度=${content.trim().length}）。若为推理模型，请调高 LLM_MAX_TOKENS。`);
+  }
+  // skill-native：直接把模型返回的 Markdown 当成片，不做 JSON 解析。
+  if (outputMode === 'skill-native') {
+    const nativeMarkdown = stripMarkdownFence(content);
+    const nativeModules = normalizeLlmModules({}, nativeMarkdown);
+    return {
+      episodeId: episode.id,
+      title: episode.title,
+      mode: 'llm',
+      provider: config.providerName,
+      model: config.model,
+      modules: nativeModules,
+      markdown: nativeMarkdown
+    };
   }
   let parsed;
   try {
