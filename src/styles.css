@@ -190,6 +190,27 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .modal-close:hover { background: var(--surface-3); color: var(--accent); border-color: var(--accent); }
 .modal-body { padding: 22px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
 .modal-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 13px; }
+.modal.modal-wide { max-width: 1200px; }
+
+/* ===== 剧集工作台：左右两栏 ===== */
+.ep-workbench { display: grid; grid-template-columns: minmax(0, 44%) minmax(0, 1fr); gap: 18px; align-items: stretch; min-height: 0; }
+.ep-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ep-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ep-settings { grid-template-columns: 1fr 1fr; }
+.ep-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ep-actions .secondary { min-height: 34px; padding: 0 12px; font-size: 13px; }
+.ep-actions .ep-count { font-size: 13px; font-weight: 600; color: var(--text); }
+.ep-actions .ep-gen { margin-left: auto; min-height: 38px; padding: 0 16px; font-size: 13.5px; }
+.ep-picker { display: grid; gap: 11px; overflow-y: auto; max-height: 50vh; padding-right: 6px; }
+.episode-item.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.ep-card-check { position: absolute; top: 12px; right: 12px; color: var(--text-muted); }
+.episode-item.selected .ep-card-check { color: var(--accent); }
+.ep-script, .ep-output { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ep-pane-head h3, .result-head h3 { font-size: 14.5px; font-weight: 650; color: var(--text); margin: 0; }
+.script-view { min-height: 150px; max-height: 26vh; color: var(--text); }
+.ep-output .output-body { grid-template-columns: 180px minmax(0, 1fr); }
+.ep-output .markdown-view { min-height: 220px; max-height: 38vh; }
+.ep-output .empty-state { min-height: 200px; }
 
 /* ===== Asset groups ===== */
 .asset-group { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--surface-2); }
@@ -297,6 +318,9 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
   .home-grid { grid-template-columns: 1fr; }
   .input-panel textarea { min-height: 240px; }
   .output-body { grid-template-columns: 1fr; }
+  .ep-output .output-body { grid-template-columns: 1fr; }
+  .ep-workbench { grid-template-columns: 1fr; }
+  .ep-picker { max-height: 30vh; }
   .episode-checklist { max-height: none; display: flex; flex-wrap: wrap; }
   .epchip { width: auto; }
 }

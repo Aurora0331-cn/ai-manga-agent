@@ -85,6 +85,7 @@ function App() {
   const [outputs, setOutputs] = useState([]);
   const [activeEpisodeId, setActiveEpisodeId] = useState(null);
   const [copyIds, setCopyIds] = useState([]);
+  const [focusedEpisodeId, setFocusedEpisodeId] = useState(null); // 右上「剧本原文」展示哪一集
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -154,6 +155,7 @@ function App() {
   }, [availableModels, selectedProvider]);
 
   const selectedOutput = useMemo(() => outputs.find((o) => o.episodeId === activeEpisodeId) || outputs[0], [outputs, activeEpisodeId]);
+  const focusedEpisode = useMemo(() => (project?.episodes || []).find((e) => e.id === focusedEpisodeId) || null, [project, focusedEpisodeId]);
 
   async function loadSkillTemplates() {
     try {
@@ -539,64 +541,83 @@ function App() {
 
       {/* ===== 剧集提示词二级弹窗 ===== */}
       {episodeModal && project && (
-        <Modal title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · 已选 ${selectedIds.length} 集`} onClose={() => setEpisodeModal(false)}>
-          <div className="modal-settings">
-            <SelectField label="视频分镜 SKILL" value={videoSkillId}
-              options={videoSkillOptions.map((t) => t.id)}
-              optionLabels={Object.fromEntries(videoSkillOptions.map((t) => [t.id, t.name]))}
-              onChange={setVideoSkillId} />
-            <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
-            <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
-            <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
-          </div>
-
-          <div className="selector-row">
-            <button className="secondary" onClick={selectAllEpisodes}>
-              {selectedIds.length === project.episodes.length ? <CheckSquare size={16} /> : <Square size={16} />}全选剧集
-            </button>
-            <span>{selectedIds.length} / {project.episodes.length} 已选择</span>
-          </div>
-          <div className="episode-list modal-eplist">
-            {project.episodes.map((episode) => (
-              <button key={episode.id} className={`episode-item ${selectedIds.includes(episode.id) ? 'selected' : ''}`} onClick={() => toggleEpisode(episode.id)}>
-                <span className="episode-number">第 {episode.number} 集</span>
-                <strong>{episode.title}</strong>
-                <small>{episode.summary}</small>
-              </button>
-            ))}
-          </div>
-
-          <button className="primary" onClick={generatePrompts} disabled={loading === 'generate' || selectedIds.length === 0}>
-            {loading === 'generate' ? <RefreshCw className="spin" size={18} /> : <Play size={18} />}
-            生成选中剧集提示词
-          </button>
-
-          {outputs.length > 0 && (
-            <div className="result-block">
-              <div className="result-head">
-                <h3>提示词输出 · 共 {outputs.length} 集</h3>
-                <div className="actions">
-                  <button className="secondary" onClick={selectAllCopy}>{allCopyChecked ? <CheckSquare size={15} /> : <Square size={15} />}全选</button>
-                  <button className="secondary" onClick={() => copyText(chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'), `已复制 ${chosenOutputs().length} 集提示词。`)}><Copy size={15} />复制选中{copyIds.length ? ` (${copyIds.length})` : ''}</button>
-                  <button className="secondary" onClick={() => exportDoc('docx', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />Word</button>
-                  <button className="secondary" onClick={() => exportDoc('txt', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />TXT</button>
-                </div>
+        <Modal className="modal-wide" title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · 已选 ${selectedIds.length} 集`} onClose={() => setEpisodeModal(false)}>
+          <div className="ep-workbench">
+            {/* 左栏：前置设置 + 剧集选择 */}
+            <div className="ep-left">
+              <div className="modal-settings ep-settings">
+                <SelectField label="视频分镜 SKILL" value={videoSkillId}
+                  options={videoSkillOptions.map((t) => t.id)}
+                  optionLabels={Object.fromEntries(videoSkillOptions.map((t) => [t.id, t.name]))}
+                  onChange={setVideoSkillId} />
+                <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
+                <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
+                <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
               </div>
-              <div className="output-body">
-                <div className="episode-checklist">
-                  {outputs.map((output) => (
-                    <div key={output.episodeId} className={`epchip ${activeEpisodeId === output.episodeId ? 'active' : ''} ${copyIds.includes(output.episodeId) ? 'checked' : ''}`} onClick={() => setActiveEpisodeId(output.episodeId)}>
-                      <span className="epchip-check" role="checkbox" aria-checked={copyIds.includes(output.episodeId)} onClick={(e) => { e.stopPropagation(); toggleCopy(output.episodeId); }}>
-                        {copyIds.includes(output.episodeId) ? <CheckSquare size={16} /> : <Square size={16} />}
-                      </span>
-                      <span className="epchip-title">{output.title}</span>
-                    </div>
-                  ))}
-                </div>
-                <pre className="markdown-view">{selectedOutput ? selectedOutput.markdown : ''}</pre>
+
+              <div className="ep-actions">
+                <button className="secondary" onClick={selectAllEpisodes}>
+                  {selectedIds.length === project.episodes.length ? <CheckSquare size={16} /> : <Square size={16} />}全选剧集
+                </button>
+                <span className="ep-count">{selectedIds.length} / {project.episodes.length} 已选择</span>
+                <button className="primary ep-gen" onClick={generatePrompts} disabled={loading === 'generate' || selectedIds.length === 0}>
+                  {loading === 'generate' ? <RefreshCw className="spin" size={16} /> : <Play size={16} />}生成选中剧集提示词
+                </button>
+              </div>
+
+              <div className="ep-picker">
+                {project.episodes.map((episode) => (
+                  <button key={episode.id}
+                    className={`episode-item ${selectedIds.includes(episode.id) ? 'selected' : ''} ${focusedEpisodeId === episode.id ? 'focused' : ''}`}
+                    onClick={() => { toggleEpisode(episode.id); setFocusedEpisodeId(episode.id); }}>
+                    <span className="ep-card-check">{selectedIds.includes(episode.id) ? <CheckSquare size={15} /> : <Square size={15} />}</span>
+                    <span className="episode-number">第 {episode.number} 集</span>
+                    <strong>{episode.title}</strong>
+                    <small>{episode.summary}</small>
+                  </button>
+                ))}
               </div>
             </div>
-          )}
+
+            {/* 右栏：上=剧本原文，下=提示词输出 */}
+            <div className="ep-right">
+              <div className="ep-script">
+                <div className="ep-pane-head"><h3>剧本原文 · {focusedEpisode ? focusedEpisode.title : '未选择'}</h3></div>
+                <pre className="markdown-view script-view">{focusedEpisode ? focusedEpisode.script : '点击左侧任意一集，这里显示该集剧本原文。'}</pre>
+              </div>
+
+              <div className="ep-output">
+                <div className="result-head">
+                  <h3>提示词输出 · 共 {outputs.length} 集</h3>
+                  {outputs.length > 0 && (
+                    <div className="actions">
+                      <button className="secondary" onClick={selectAllCopy}>{allCopyChecked ? <CheckSquare size={15} /> : <Square size={15} />}全选</button>
+                      <button className="secondary" onClick={() => copyText(chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'), `已复制 ${chosenOutputs().length} 集提示词。`)}><Copy size={15} />复制选中{copyIds.length ? ` (${copyIds.length})` : ''}</button>
+                      <button className="secondary" onClick={() => exportDoc('docx', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />Word</button>
+                      <button className="secondary" onClick={() => exportDoc('txt', `漫剧提示词_共${chosenOutputs().length}集`, chosenOutputs().map((o) => o.markdown).join('\n\n\n---\n\n\n'))}><Download size={15} />TXT</button>
+                    </div>
+                  )}
+                </div>
+                {outputs.length > 0 ? (
+                  <div className="output-body">
+                    <div className="episode-checklist">
+                      {outputs.map((output) => (
+                        <div key={output.episodeId} className={`epchip ${activeEpisodeId === output.episodeId ? 'active' : ''} ${copyIds.includes(output.episodeId) ? 'checked' : ''}`} onClick={() => setActiveEpisodeId(output.episodeId)}>
+                          <span className="epchip-check" role="checkbox" aria-checked={copyIds.includes(output.episodeId)} onClick={(e) => { e.stopPropagation(); toggleCopy(output.episodeId); }}>
+                            {copyIds.includes(output.episodeId) ? <CheckSquare size={16} /> : <Square size={16} />}
+                          </span>
+                          <span className="epchip-title">{output.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <pre className="markdown-view">{selectedOutput ? selectedOutput.markdown : ''}</pre>
+                  </div>
+                ) : (
+                  <div className="empty-state">选择剧集并点「生成选中剧集提示词」后，这里显示分镜提示词。</div>
+                )}
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -636,10 +657,10 @@ function App() {
   );
 }
 
-function Modal({ title, subtitle, onClose, children }) {
+function Modal({ title, subtitle, onClose, children, className = '' }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal ${className}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
             <h2>{title}</h2>
@@ -693,7 +714,7 @@ async function readJson(res) {
 
 // 发起生成任务并轮询结果：后端立即返回 jobId，前端每隔几秒查一次。
 // 每个请求都很短，绕开免费托管层对单个长请求约 60 秒的断连限制。
-async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 600000 } = {}) {
+async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 720000 } = {}) {
   const start = await readJson(await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }));
