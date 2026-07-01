@@ -1013,7 +1013,7 @@ ${selfCheck}
 
 // 统一的 chat/completions 调用：带超时；若供应商不支持 response_format 则自动去掉重试一次。
 async function chatCompletion(config, payload, { retriedWithoutJsonMode = false } = {}) {
-  const timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 60000;
+  const timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 180000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
