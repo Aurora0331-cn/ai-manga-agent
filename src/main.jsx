@@ -209,7 +209,8 @@ function App() {
   const [worldview, setWorldview] = useState('现代都市');
   const [worldviewCustom, setWorldviewCustom] = useState('');
   const [assetImages, setAssetImages] = useState({}); // assetKey -> 图像 URL
-  const [imgLoading, setImgLoading] = useState('');   // 正在出图的 assetKey
+  const [baseFaces, setBaseFaces] = useState({});     // 角色名 -> 基准脸 1:1 大头照 URL
+  const [imgLoading, setImgLoading] = useState('');   // 正在出图的 key
   const [showAgePanel, setShowAgePanel] = useState(false);
 
   // 剧集提示词
@@ -428,19 +429,40 @@ function App() {
       { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone, characterLook: cl, worldview: wv });
   }
 
+  function imageInstance() {
+    return (modelStore.image || []).find((i) => i.name === project?.models?.image);
+  }
   async function generateAssetImage(type, name) {
     const key = assetKey(type, name);
     const prompt = assetItems[key];
     if (!prompt) { setNotice('请先生成该资产的提示词，再出图。'); return; }
-    const inst = (modelStore.image || []).find((i) => i.name === project?.models?.image);
+    const inst = imageInstance();
     if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个（或去右上角模型设置添加并填 Key）。'); return; }
-    setImgLoading(key); setNotice('正在生成图像，可能需要 10-60 秒…');
+    const referenceImage = type === 'characters' ? (baseFaces[name] || '') : '';
+    setImgLoading(key); setNotice(referenceImage ? '正在以基准脸为参考出图（锁脸），可能 20-60 秒…' : '正在生成图像，可能 20-60 秒…');
     try {
-      const res = await fetch(`${API}/generate-image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: String(prompt).slice(0, 4000), image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model } }) });
-      const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error || '图像生成失败');
+      const data = await runJob(`${API}/generate-image`, { prompt: String(prompt).slice(0, 4000), image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }, referenceImage });
+      if (data.error || !data.url) throw new Error(data.error || '图像生成失败');
       setAssetImages((m) => ({ ...m, [key]: data.url }));
-      setNotice('图像已生成。');
+      setNotice(referenceImage ? '图像已生成（已锁基准脸）。' : (type === 'characters' ? '图像已生成。建议先「生成基准脸」再出造型，脸更稳。' : '图像已生成。'));
+    } catch (error) { setNotice(error.message); } finally { setImgLoading(''); }
+  }
+
+  // 用捏脸法出该角色 1:1 基准大头照，作为后续造型的锁脸参考。
+  async function generateBaseFace(name) {
+    const key = assetKey('characters', name);
+    const raw = assetItems[key];
+    if (!raw) { setNotice('请先生成该角色提示词（得到面部锚点）再生成基准脸。'); return; }
+    const inst = imageInstance();
+    if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个。'); return; }
+    const anchor = parseCharacterOutfits(raw).anchor || raw;
+    const prompt = `原创角色 1:1 胸像特写定妆照，灰色影棚背景，高级商业摄影质感，真人写实风格，只拍头部、肩颈到胸口上方，人物面部占画面主要面积，肩颈自然入镜，不拍到腰部以下。面部设定：${String(anchor).slice(0, 1600)}。表情自然、安静、克制，不夸张、不刻意微笑。明亮通透影棚光，轻微伦勃朗阴影展现骨相结构。真实皮肤纹理、毛孔自然、发丝清晰、五官自然协调、面部结构稳定。不参考任何真实人物、明星、网红或影视角色。负面：明星脸，网红脸，撞脸，塑料皮肤，AI假脸，锥子脸，脸部变形，多人同框，全身照，背景杂乱。`;
+    setImgLoading(`base|${name}`); setNotice('正在生成基准脸（1:1 定妆照），可能 20-60 秒…');
+    try {
+      const data = await runJob(`${API}/generate-image`, { prompt, image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }, size: '1024x1024' });
+      if (data.error || !data.url) throw new Error(data.error || '基准脸生成失败');
+      setBaseFaces((m) => ({ ...m, [name]: data.url }));
+      setNotice('基准脸已生成。后续该角色造型出图会以它为参考锁脸。');
     } catch (error) { setNotice(error.message); } finally { setImgLoading(''); }
   }
 
@@ -1264,6 +1286,9 @@ function App() {
                       <h3>{assetView.name}{isChar && raw ? <em className="outfit-count"> · {parsed.outfits.length} 个造型</em> : null}</h3>
                       <div className="actions">
                         {raw && <button className="secondary" onClick={() => copyText(raw, '已复制该资产全部提示词。')}><Copy size={14} />复制全部</button>}
+                        {raw && isChar && <button className="secondary" onClick={() => generateBaseFace(assetView.name)} disabled={imgLoading === `base|${assetView.name}`} title="先出 1:1 基准大头照，后续造型以它锁脸">
+                          {imgLoading === `base|${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Users size={14} />}{baseFaces[assetView.name] ? '重出基准脸' : '生成基准脸'}
+                        </button>}
                         {raw && <button className="secondary" onClick={() => generateAssetImage(assetView.type, assetView.name)} disabled={imgLoading === assetKey(assetView.type, assetView.name)}>
                           {imgLoading === assetKey(assetView.type, assetView.name) ? <RefreshCw className="spin" size={14} /> : <Play size={14} />}生成图像
                         </button>}
@@ -1273,6 +1298,15 @@ function App() {
                         </button>
                       </div>
                     </div>
+
+                    {isChar && (baseFaces[assetView.name] || imgLoading === `base|${assetView.name}`) && (
+                      <div className="base-face">
+                        <div className="base-face-tag">基准脸 · 锁脸参考（后续造型出图以此为准）</div>
+                        {imgLoading === `base|${assetView.name}`
+                          ? <div className="asset-image-loading"><RefreshCw className="spin" size={22} /><span>正在生成基准脸…</span></div>
+                          : <a href={baseFaces[assetView.name]} target="_blank" rel="noopener"><img src={baseFaces[assetView.name]} alt={`${assetView.name} 基准脸`} /></a>}
+                      </div>
+                    )}
 
                     {(assetImages[assetKey(assetView.type, assetView.name)] || imgLoading === assetKey(assetView.type, assetView.name)) && (
                       <div className="asset-image">
