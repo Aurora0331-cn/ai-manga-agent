@@ -1370,37 +1370,6 @@ function App() {
         );
       })()}
 
-      <section className="model-dock" style={dockPos ? { left: dockPos.x, top: dockPos.y, right: 'auto', bottom: 'auto' } : undefined}>
-        <button type="button" className="model-dock-toggle" onPointerDown={onDockDown} title="拖动可移动，点击展开/收起">
-          <RefreshCw size={20} /><span>LLM</span>
-        </button>
-        {showModelSettings && (
-          <div className="model-panel bottom-model-panel">
-            <div className="panel-title compact"><RefreshCw size={16} /><span>LLM 模型接口</span></div>
-            <SelectField label="供应商" value={llm.providerId}
-              options={providers.map((p) => p.id)}
-              optionLabels={Object.fromEntries(providers.map((p) => [p.id, `${p.name}${p.configured ? '（已配置）' : ''}`]))}
-              onChange={(value) => {
-                const provider = providers.find((p) => p.id === value);
-                setAvailableModels(null);
-                setLlm({ ...llm, providerId: value, model: provider?.models?.[0] || '', baseUrl: provider?.baseUrl || llm.baseUrl });
-              }} />
-            <ModelField idKey="dock" label="模型" value={llm.model} options={modelOptions} onChange={(v) => setLlm({ ...llm, model: v })} />
-            <label className="field">
-              <span>Base URL{selectedProvider && !selectedProvider.allowCustomBaseUrl ? '（该供应商固定）' : ''}</span>
-              <input value={llm.baseUrl} disabled={selectedProvider && !selectedProvider.allowCustomBaseUrl} onChange={(e) => setLlm({ ...llm, baseUrl: e.target.value })} />
-            </label>
-            <label className="field">
-              <span>本次 API Key（可选，留空使用后端 .env）</span>
-              <input type="password" value={llm.apiKey} placeholder="sk-..." onChange={(e) => setLlm({ ...llm, apiKey: e.target.value })} />
-            </label>
-            <button className="secondary test-connection" onClick={testConnection} disabled={loading === 'llm-test'}>
-              {loading === 'llm-test' ? <RefreshCw className="spin" size={16} /> : <RefreshCw size={16} />}测试连接
-            </button>
-          </div>
-        )}
-      </section>
-
       {notice && <div className="toast">{notice}</div>}
       </div>
     </main>
