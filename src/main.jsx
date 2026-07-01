@@ -519,6 +519,9 @@ function App() {
           <button type="button" className="script-workshop-btn" onClick={() => setScriptModal(true)}>
             <Sparkles size={16} />剧本构建工坊 · 生成 / 小说转 / 优化
           </button>
+          <button type="button" className="script-platform-btn" onClick={() => window.open('http://127.0.0.1:8005', '_blank', 'noopener')} title="在本机打开 PlotPilot（墨枢）剧本创作平台，需先在本地启动 PlotPilot">
+            <FileText size={16} />剧本创作平台 · PlotPilot（本地）
+          </button>
           <textarea value={script} onChange={(e) => setScript(e.target.value)} />
           <button className="primary" onClick={parseProject} disabled={loading === 'parse'}>
             {loading === 'parse' ? <RefreshCw className="spin" size={18} /> : <Layers size={18} />}

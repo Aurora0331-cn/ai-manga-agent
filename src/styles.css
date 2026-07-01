@@ -239,6 +239,8 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 /* ===== 剧本构建工坊 ===== */
 .script-workshop-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border-radius: var(--radius); border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; transition: all 0.16s ease; }
 .script-workshop-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
+.script-platform-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-muted); font-weight: 650; font-size: 13.5px; transition: all 0.16s ease; }
+.script-platform-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .script-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .script-tab { padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: 13px; }
 .script-tab:hover { border-color: var(--border-strong); color: var(--text); }
