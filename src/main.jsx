@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Box, CheckSquare, Copy, Download, FileText, Layers, MapPin, Moon, Play, RefreshCw, Sparkles, Square, Sun, Upload, Users, X } from 'lucide-react';
+import { Box, CheckSquare, Copy, Download, FileText, Film, Layers, MapPin, Moon, Play, Plus, RefreshCw, Search, Settings, Sparkles, Square, Sun, Trash2, Upload, Users, X, ArrowLeft } from 'lucide-react';
 import './styles.css';
 
 const DEV = typeof location !== 'undefined' && location.port === '5173';
@@ -46,10 +46,33 @@ const STYLE_NAMES = [
   '日漫风格', '新海诚风格', '国风水墨风格', '游戏原画风格', '皮克斯风格'
 ];
 
+// 项目系统：风格与模型选项（模型栏为项目配置展示，实际生成用 LLM 面板）
+const PROJECT_STYLE_OPTIONS = ['电影质感', '高清实拍', '动漫风格', '国风水墨', '赛博朋克', '自定义'];
+const MODEL_OPTIONS = {
+  analysis: ['Doubao 2.0', 'Doubao 1.5', 'DeepSeek V4', 'GPT-4o', 'Claude Sonnet 4'],
+  image: ['Seedream 4.5', 'Seedream 3.0', 'Midjourney v6', 'FLUX 1.1'],
+  video: ['Like Pro 1.0', 'Seedance 2.0', 'Kling 2.0', 'Runway Gen-3']
+};
+
 function App() {
   const [script, setScript] = useState(sampleScript);
   const [file, setFile] = useState(null);
   const [project, setProject] = useState(null);
+
+  // ===== 项目汇总（我的项目）系统 =====
+  const [view, setView] = useState('dashboard'); // dashboard | project
+  const [projectList, setProjectList] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [activeCategory, setActiveCategory] = useState('工作台');
+  const [filterType, setFilterType] = useState('全部'); // 全部 | 个人 | 协作
+  const [filterStatus, setFilterStatus] = useState('全部'); // 全部 | 已立项 | 已完结
+  const [searchQuery, setSearchQuery] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ title: '', aspectRatio: '9:16', collaboration: false });
+  const [batchMode, setBatchMode] = useState(false);
+  const [dashSel, setDashSel] = useState([]);
+  const [manageCat, setManageCat] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
   const [theme, setTheme] = useState(loadTheme);
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
@@ -250,7 +273,8 @@ function App() {
       const ext = file ? (file.name.toLowerCase().split('.').pop() || '') : '';
       if (file && ext !== 'txt' && ext !== 'md') form.append('scriptFile', file);
       form.append('script', script);
-      form.append('name', 'AI 漫剧项目');
+      form.append('name', project?.title || 'AI 漫剧项目');
+      if (project?.id) form.append('projectId', project.id);
       const res = await fetch(`${API}/projects/parse`, { method: 'POST', body: form });
       const data = await readJson(res);
       const p = data.project;
@@ -485,18 +509,227 @@ function App() {
     } catch (error) { setNotice(error.message); } finally { event.target.value = ''; setLoading(''); }
   }
 
+  async function loadProjects() {
+    try {
+      const params = new URLSearchParams({
+        type: filterType === '协作' ? 'collab' : filterType === '个人' ? 'personal' : '全部',
+        status: filterStatus, q: searchQuery, category: activeCategory
+      });
+      const data = await readJson(await fetch(`${API}/projects?${params.toString()}`));
+      setProjectList(data.projects || []);
+      setCategories(data.categories || []);
+    } catch (error) { setNotice(error.message); }
+  }
+  useEffect(() => { if (view === 'dashboard') loadProjects(); /* eslint-disable-next-line */ }, [view, filterType, filterStatus, activeCategory]);
+
+  async function createProject() {
+    const title = createForm.title.trim();
+    if (!title) { setNotice('请输入项目标题。'); return; }
+    try {
+      const data = await readJson(await fetch(`${API}/projects`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createForm, title, category: activeCategory })
+      }));
+      setCreateOpen(false);
+      setCreateForm({ title: '', aspectRatio: '9:16', collaboration: false });
+      await openProject(data.project);
+    } catch (error) { setNotice(error.message); }
+  }
+
+  async function openProject(summary) {
+    try {
+      const data = await readJson(await fetch(`${API}/projects/${summary.id}`));
+      const p = data.project;
+      setProject(p);
+      setScript(p.originalScript || '');
+      setSettings((s) => ({ ...s, aspectRatio: p.aspectRatio || '9:16', visualStyle: p.stylePrompt || p.style || s.visualStyle }));
+      const hasScript = !!(p.originalScript && p.originalScript.trim());
+      setStep(1); setS1tab(hasScript ? 'paste' : 'generate');
+      setScriptConfirmed(false); setAssetsConfirmed(false);
+      setScriptOutput(''); setScriptPlan('');
+      setView('project');
+    } catch (error) { setNotice(error.message); }
+  }
+
+  function backToDashboard() { setView('dashboard'); setProject(null); }
+
+  async function saveProjectMeta(patch) {
+    if (!project) return;
+    setProject((p) => ({ ...p, ...patch }));
+    try { await fetch(`${API}/projects/${project.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }); }
+    catch (error) { setNotice(error.message); }
+  }
+
+  async function addCategory() {
+    const n = newCatName.trim(); if (!n) return;
+    try {
+      const data = await readJson(await fetch(`${API}/categories`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }) }));
+      setCategories(data.categories || []); setNewCatName('');
+    } catch (error) { setNotice(error.message); }
+  }
+  async function deleteCategory(name) {
+    try {
+      const data = await readJson(await fetch(`${API}/categories/${encodeURIComponent(name)}`, { method: 'DELETE' }));
+      setCategories(data.categories || []);
+      if (activeCategory === name) setActiveCategory('工作台');
+    } catch (error) { setNotice(error.message); }
+  }
+  function toggleDashSel(id) { setDashSel((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id])); }
+  async function batchAction(action, patch) {
+    if (!dashSel.length) { setNotice('请先勾选项目。'); return; }
+    try {
+      await fetch(`${API}/projects/batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: dashSel, action, patch }) });
+      setDashSel([]); setBatchMode(false); loadProjects();
+    } catch (error) { setNotice(error.message); }
+  }
+
   const b = project?.bible;
   const videoSkillOptions = skillTemplates.filter((t) => t.kind === 'video' || !t.kind);
   const assetSkillOptions = skillTemplates.filter((t) => t.kind === 'asset' || !t.kind);
   const scriptSkillOptions = skillTemplates.filter((t) => t.kind === 'script');
 
+  if (view === 'dashboard') {
+    return (
+      <main className="dashboard">
+        <header className="dash-head">
+          <h1 className="dash-title">我的项目</h1>
+          <div className="dash-filters">
+            <label className="dash-filter"><span>项目类型</span>
+              <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+                <option>全部</option><option>个人</option><option>协作</option>
+              </select>
+            </label>
+            <label className="dash-filter"><span>项目状态</span>
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option>全部</option><option>已立项</option><option>已完结</option>
+              </select>
+            </label>
+            <input className="dash-search-input" placeholder="请输入项目名称（模糊）" value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadProjects(); }} />
+            <button className="primary dash-search-btn" onClick={loadProjects}>搜索</button>
+            <button className="secondary" onClick={() => { setFilterType('全部'); setFilterStatus('全部'); setSearchQuery(''); setActiveCategory('工作台'); }}>重置</button>
+            <button className={`secondary dash-batch${batchMode ? ' on' : ''}`} onClick={() => { setBatchMode((v) => !v); setDashSel([]); }}><Layers size={15} />批量管理</button>
+            <button type="button" className="theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label="切换深色模式">
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+          </div>
+        </header>
+
+        <div className="dash-tabs-row">
+          <div className="dash-cats">
+            {['工作台', ...categories].map((c) => (
+              <button key={c} className={`dash-cat${activeCategory === c ? ' active' : ''}`} onClick={() => setActiveCategory(c)}>{c}</button>
+            ))}
+            <button className="dash-cat add" onClick={() => setManageCat(true)} title="新增分类"><Plus size={15} /></button>
+          </div>
+          <button className="secondary" onClick={() => setManageCat(true)}><Settings size={15} />管理分类</button>
+        </div>
+
+        {batchMode && (
+          <div className="dash-batchbar">
+            <span>已选 {dashSel.length}</span>
+            <button className="secondary" onClick={() => batchAction('update', { status: '已完结' })}>标记已完结</button>
+            <button className="secondary" onClick={() => batchAction('update', { status: '已立项' })}>标记已立项</button>
+            <button className="secondary danger" onClick={() => { if (window.confirm('确认删除所选项目？此操作不可恢复。')) batchAction('delete'); }}><Trash2 size={14} />删除</button>
+            <button className="secondary" onClick={() => { setBatchMode(false); setDashSel([]); }}>取消</button>
+          </div>
+        )}
+
+        <div className="dash-grid">
+          <button className="dash-card new-card" onClick={() => setCreateOpen(true)}>
+            <Plus size={30} /><span>新建项目</span>
+          </button>
+          {projectList.map((p) => (
+            <div key={p.id} className={`dash-card proj-card${batchMode && dashSel.includes(p.id) ? ' selected' : ''}`}
+              onClick={() => { if (batchMode) toggleDashSel(p.id); else openProject(p); }}>
+              <div className="proj-tags">
+                {p.collaboration && <span className="ptag collab">协作</span>}
+                <span className={`ptag status${p.status === '已完结' ? ' done' : ''}`}>{p.status}</span>
+                {batchMode && <span className="proj-check">{dashSel.includes(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}</span>}
+              </div>
+              <div className="proj-thumb"><Film size={40} /></div>
+              <div className="proj-title">{p.title}</div>
+              <div className="proj-meta"><span>{p.aspectRatio}</span><span>{p.style}</span></div>
+            </div>
+          ))}
+        </div>
+
+        {createOpen && (
+          <div className="modal-overlay" onClick={() => setCreateOpen(false)}>
+            <div className="modal create-modal" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setCreateOpen(false)}><X size={20} /></button>
+              <h2 className="create-title">创建项目</h2>
+              <input className="create-input" placeholder="请输入项目标题" value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} />
+              <div className="aspect-choices">
+                {['9:16', '16:9'].map((r) => (
+                  <button key={r} className={`aspect-choice${createForm.aspectRatio === r ? ' active' : ''}`} onClick={() => setCreateForm({ ...createForm, aspectRatio: r })}>
+                    <div className={`aspect-box ${r === '9:16' ? 'v' : 'h'}`}></div><span>{r}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="collab-row">
+                <span>协作项目</span>
+                <button className={`ui-toggle${createForm.collaboration ? ' on' : ''}`} onClick={() => setCreateForm({ ...createForm, collaboration: !createForm.collaboration })}><i /></button>
+              </div>
+              <div className="create-actions">
+                <button className="primary" onClick={createProject}>下一步</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {manageCat && (
+          <div className="modal-overlay" onClick={() => setManageCat(false)}>
+            <div className="modal manage-cat-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head"><div><h2>管理分类</h2></div><button className="modal-close" onClick={() => setManageCat(false)}><X size={20} /></button></div>
+              <div className="modal-body">
+                <div className="add-asset"><input placeholder="新增分类，如 2026年6月" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addCategory(); }} /><button className="link-btn" onClick={addCategory}>+ 添加</button></div>
+                <div className="cat-list">
+                  {categories.length ? categories.map((c) => (<div key={c} className="cat-item"><span>{c}</span><button className="link-btn danger" onClick={() => deleteCategory(c)}><Trash2 size={13} />删除</button></div>)) : <div className="empty-state">还没有分类，添加一个月份或标签。</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {notice && <div className="toast">{notice}</div>}
+      </main>
+    );
+  }
+
   return (
-    <main className="app-shell">
+    <main className="app-shell workspace">
+      <aside className="project-config">
+        <div className="pc-row"><span>分辨率</span><strong>{project?.aspectRatio || settings.aspectRatio}</strong></div>
+        <div className="pc-row"><span>风格</span><strong>{project?.style || '电影质感'}</strong></div>
+        <div className="pc-row"><span>创建时间</span><strong className="pc-time">{project?.createdAt ? new Date(project.createdAt).toLocaleString('zh-CN') : '-'}</strong></div>
+        <div className="pc-block">
+          <span>风格提示词</span>
+          <div className="pc-prompt">{project?.stylePrompt || 'cinematic lighting, movie still, shot on 35mm, realistic, masterpiece'}</div>
+        </div>
+        <label className="pc-field"><span>分析模型</span>
+          <select value={project?.models?.analysis || 'Doubao 2.0'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), analysis: e.target.value } })}>
+            {MODEL_OPTIONS.analysis.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        <label className="pc-field"><span>图像模型</span>
+          <select value={project?.models?.image || 'Seedream 4.5'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), image: e.target.value } })}>
+            {MODEL_OPTIONS.image.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        <label className="pc-field"><span>视频模型</span>
+          <select value={project?.models?.video || 'Like Pro 1.0'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), video: e.target.value } })}>
+            {MODEL_OPTIONS.video.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        <button className="secondary pc-back" onClick={backToDashboard}><ArrowLeft size={15} />返回项目列表</button>
+      </aside>
+      <div className="workspace-main">
       <section className="topbar">
         <div>
           <div className="brand-mark"><Sparkles size={24} /></div>
           <div className="brand-text">
-            <p className="eyebrow">AI 漫剧提示词智能体</p>
+            <p className="eyebrow">{project?.title || 'AI 漫剧提示词智能体'}</p>
             <h1>剧集级提示词生成工作台</h1>
           </div>
         </div>
@@ -504,7 +737,7 @@ function App() {
           <button type="button" className="theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label="切换深色模式">
             {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
           </button>
-          <div className="status-pill">{project ? `${project.episodes.length} 集已解析` : '等待上传剧本'}</div>
+          <div className="status-pill">{project && project.episodes?.length ? `${project.episodes.length} 集已解析` : '等待上传剧本'}</div>
         </div>
       </section>
 
@@ -944,6 +1177,7 @@ function App() {
       </section>
 
       {notice && <div className="toast">{notice}</div>}
+      </div>
     </main>
   );
 }
