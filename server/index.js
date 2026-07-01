@@ -186,6 +186,50 @@ function expandStyle(name) {
   return STYLE_PRESETS[name] || name || '';
 }
 
+// ===== 项目系统：默认配置与元数据 =====
+const PROJECT_STYLES = {
+  '电影质感': 'cinematic lighting, movie still, shot on 35mm, realistic, masterpiece',
+  '高清实拍': 'photorealistic, raw photo, DSLR, sharp focus, high fidelity, 4k texture',
+  '动漫风格': 'anime style, 2D animation, cel shading, vibrant colors, clean lines',
+  '国风水墨': 'Chinese ink painting, watercolor, traditional art, flowing lines, oriental aesthetic',
+  '赛博朋克': 'cinematic, photorealistic, neon lighting, cyberpunk aesthetic, cool tones, dramatic lighting',
+  '自定义': ''
+};
+const DEFAULT_PROJECT_STYLE = '电影质感';
+const DEFAULT_PROJECT_MODELS = { analysis: 'Doubao 2.0', image: 'Seedream 4.5', video: 'Like Pro 1.0' };
+function projectStylePrompt(style) {
+  return (style in PROJECT_STYLES) ? PROJECT_STYLES[style] : (STYLE_PRESETS[style] || '');
+}
+function projectSummary(p) {
+  return {
+    id: p.id,
+    title: p.title || p.name || '未命名项目',
+    aspectRatio: p.aspectRatio || '9:16',
+    collaboration: !!p.collaboration,
+    status: p.status || '已立项',
+    category: p.category || '工作台',
+    style: p.style || DEFAULT_PROJECT_STYLE,
+    createdAt: p.createdAt || null,
+    episodeCount: (p.episodes || []).length,
+    hasScript: !!(p.originalScript && p.originalScript.trim())
+  };
+}
+// 项目分类（月份/自定义标签，不含默认「工作台」）
+const projectCategories = new Set();
+function listProjectCategories() { return [...projectCategories]; }
+async function persistCategories() {
+  try {
+    await fs.mkdir(dataDir, { recursive: true });
+    await fs.writeFile(path.join(dataDir, '_categories.json'), JSON.stringify([...projectCategories]), 'utf8');
+  } catch (error) { console.warn(`Persist categories failed: ${error.message}`); }
+}
+async function loadCategories() {
+  try {
+    const raw = await fs.readFile(path.join(dataDir, '_categories.json'), 'utf8');
+    for (const c of JSON.parse(raw)) if (c) projectCategories.add(c);
+  } catch { /* 首次运行无分类文件 */ }
+}
+
 // ===== 异步任务：绕开免费托管层对单个 HTTP 请求约 60 秒的断连限制 =====
 // 生成类请求立即返回 jobId（不阻塞），后台执行 LLM；前端轮询 /api/jobs/:id 取结果。
 const jobs = new Map(); // jobId -> { status:'pending'|'done'|'error', result, error, createdAt }
@@ -269,11 +313,12 @@ async function persistProject(project) {
 }
 
 async function loadPersistedProjects() {
+  await loadCategories();
   try {
     const files = await fs.readdir(dataDir);
     let loaded = 0;
     for (const file of files) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith('.json') || file.startsWith('_')) continue;
       try {
         const project = JSON.parse(await fs.readFile(path.join(dataDir, file), 'utf8'));
         if (project?.id) {
@@ -1262,6 +1307,124 @@ app.post('/api/skill-templates/upload', upload.single('skillFile'), async (req, 
   }
 });
 
+// ===== 项目汇总：列表 / 创建 / 读取 / 更新 / 删除 / 批量 =====
+app.get('/api/projects', (req, res) => {
+  const { type = '全部', status = '全部', q = '', category = '工作台' } = req.query;
+  let list = [...projects.values()].map(projectSummary);
+  if (type === 'collab' || type === '协作') list = list.filter((p) => p.collaboration);
+  else if (type === 'personal' || type === '个人') list = list.filter((p) => !p.collaboration);
+  if (status && status !== '全部') list = list.filter((p) => p.status === status);
+  if (category && category !== '工作台') list = list.filter((p) => p.category === category);
+  const kw = String(q || '').trim();
+  if (kw) list = list.filter((p) => (p.title || '').includes(kw));
+  list.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  res.json({ projects: list, categories: listProjectCategories() });
+});
+
+app.post('/api/projects', async (req, res, next) => {
+  try {
+    const { title = '', aspectRatio = '9:16', collaboration = false, style = DEFAULT_PROJECT_STYLE, category = '工作台', models = {} } = req.body || {};
+    const project = {
+      id: uid('project'),
+      title: String(title).trim() || '未命名项目',
+      name: String(title).trim() || '未命名项目',
+      aspectRatio: aspectRatio === '16:9' ? '16:9' : '9:16',
+      collaboration: !!collaboration,
+      status: '已立项',
+      category: category || '工作台',
+      style: style in PROJECT_STYLES ? style : DEFAULT_PROJECT_STYLE,
+      stylePrompt: projectStylePrompt(style in PROJECT_STYLES ? style : DEFAULT_PROJECT_STYLE),
+      models: { ...DEFAULT_PROJECT_MODELS, ...(models || {}) },
+      createdAt: new Date().toISOString(),
+      originalScript: '',
+      episodes: [],
+      bible: { characters: [], scenes: [], props: [], episodeContinuity: [] },
+      outputs: {}
+    };
+    projects.set(project.id, project);
+    await persistProject(project);
+    res.json({ project });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/projects/:id', (req, res) => {
+  const p = projects.get(req.params.id);
+  if (!p) return res.status(404).json({ error: '项目不存在。' });
+  res.json({ project: p });
+});
+
+app.patch('/api/projects/:id', async (req, res, next) => {
+  try {
+    const p = projects.get(req.params.id);
+    if (!p) return res.status(404).json({ error: '项目不存在。' });
+    const allow = ['title', 'aspectRatio', 'collaboration', 'status', 'category', 'style', 'stylePrompt', 'models'];
+    for (const k of allow) if (k in req.body) p[k] = req.body[k];
+    if ('title' in req.body) p.name = p.title;
+    if ('style' in req.body && !('stylePrompt' in req.body)) p.stylePrompt = projectStylePrompt(p.style);
+    await persistProject(p);
+    res.json({ project: projectSummary(p) });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/projects/:id', async (req, res, next) => {
+  try {
+    projects.delete(req.params.id);
+    try { await fs.unlink(projectFilePath(req.params.id)); } catch { /* 文件可能不存在 */ }
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/projects/batch', async (req, res, next) => {
+  try {
+    const { ids = [], action, patch = {} } = req.body || {};
+    for (const id of ids) {
+      const p = projects.get(id);
+      if (action === 'delete') {
+        projects.delete(id);
+        try { await fs.unlink(projectFilePath(id)); } catch { /* ignore */ }
+      } else if (action === 'update' && p) {
+        const allow = ['status', 'category', 'collaboration'];
+        for (const k of allow) if (k in patch) p[k] = patch[k];
+        await persistProject(p);
+      }
+    }
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+// 分类（月份/自定义标签）
+app.get('/api/categories', (_req, res) => res.json({ categories: listProjectCategories() }));
+app.post('/api/categories', async (req, res, next) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (name && name !== '工作台') projectCategories.add(name);
+    await persistCategories();
+    res.json({ categories: listProjectCategories() });
+  } catch (error) { next(error); }
+});
+app.patch('/api/categories', async (req, res, next) => {
+  try {
+    const from = String(req.body?.from || '').trim();
+    const to = String(req.body?.to || '').trim();
+    if (projectCategories.has(from) && to) {
+      projectCategories.delete(from);
+      projectCategories.add(to);
+      for (const p of projects.values()) if (p.category === from) { p.category = to; await persistProject(p); }
+      await persistCategories();
+    }
+    res.json({ categories: listProjectCategories() });
+  } catch (error) { next(error); }
+});
+app.delete('/api/categories/:name', async (req, res, next) => {
+  try {
+    const name = req.params.name;
+    projectCategories.delete(name);
+    for (const p of projects.values()) if (p.category === name) { p.category = '工作台'; await persistProject(p); }
+    await persistCategories();
+    res.json({ categories: listProjectCategories() });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/projects/parse', upload.single('scriptFile'), async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -1270,14 +1433,34 @@ app.post('/api/projects/parse', upload.single('scriptFile'), async (req, res, ne
     if (!script) return res.status(400).json({ error: '请粘贴剧本或上传 TXT/DOCX 文件。' });
 
     const episodes = splitEpisodes(script);
-    const project = {
-      id: uid('project'),
-      name: req.body.name || '未命名漫剧项目',
-      originalScript: script,
-      episodes,
-      bible: buildBible(episodes),
-      outputs: {}
-    };
+    const bible = buildBible(episodes);
+    const existing = body.projectId ? projects.get(body.projectId) : null;
+    let project;
+    if (existing) {
+      existing.originalScript = script;
+      existing.episodes = episodes;
+      existing.bible = bible;
+      existing.outputs = {};
+      project = existing;
+    } else {
+      project = {
+        id: uid('project'),
+        title: body.name || '未命名漫剧项目',
+        name: body.name || '未命名漫剧项目',
+        aspectRatio: '9:16',
+        collaboration: false,
+        status: '已立项',
+        category: '工作台',
+        style: DEFAULT_PROJECT_STYLE,
+        stylePrompt: projectStylePrompt(DEFAULT_PROJECT_STYLE),
+        models: { ...DEFAULT_PROJECT_MODELS },
+        createdAt: new Date().toISOString(),
+        originalScript: script,
+        episodes,
+        bible,
+        outputs: {}
+      };
+    }
     projects.set(project.id, project);
     await persistProject(project);
     res.json({ project });
