@@ -12,8 +12,10 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
-const outDir = path.resolve(rootDir, 'exports');
-const dataDir = path.resolve(rootDir, 'data', 'projects');
+// 持久化根目录：设置 DATA_DIR（指向 Render 持久盘挂载点，如 /var/data）后，项目与导出落到持久盘，重启/重部署不丢。
+const persistRoot = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : rootDir;
+const outDir = path.resolve(persistRoot, 'exports');
+const dataDir = path.resolve(persistRoot, 'data', 'projects');
 const defaultSkillPath = path.resolve(rootDir, 'skills', 'template-1-video-prompt-industrial-skill-v1.9.3.md');
 const skillUploadDir = path.resolve(rootDir, 'skill-templates');
 const verticalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-2-vertical-real-person-prompt.txt');
