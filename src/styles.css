@@ -21,14 +21,15 @@
   --code-text: #0b0b14;
   --code-scroll: #d3d6e2;
   --overlay: rgba(18, 20, 38, 0.5);
-  --radius-sm: 9px;
-  --radius: 14px;
-  --radius-lg: 18px;
-  --shadow-xs: 0 1px 2px rgba(20, 24, 50, 0.06);
-  --shadow-sm: 0 1px 3px rgba(20, 24, 50, 0.08), 0 1px 2px rgba(20, 24, 50, 0.04);
-  --shadow-md: 0 8px 26px rgba(20, 24, 50, 0.10);
-  --shadow-lg: 0 24px 60px rgba(20, 24, 50, 0.22);
-  --ring: 0 0 0 3px rgba(109, 93, 251, 0.20);
+  --radius-sm: 10px;
+  --radius: 15px;
+  --radius-lg: 20px;
+  --shadow-xs: 0 1px 2px rgba(20, 24, 50, 0.05);
+  --shadow-sm: 0 2px 8px rgba(20, 24, 50, 0.05), 0 1px 2px rgba(20, 24, 50, 0.04);
+  --shadow-md: 0 14px 40px -12px rgba(20, 24, 50, 0.16);
+  --shadow-lg: 0 40px 80px -24px rgba(20, 24, 50, 0.28);
+  --ring: 0 0 0 3px rgba(109, 93, 251, 0.18);
+  --hairline: rgba(20, 24, 50, 0.06);
   --scroll-thumb: #d3d6e2;
   --scroll-thumb-hover: #bcc0d2;
   font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
@@ -39,14 +40,15 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0d17;
-  --bg-glow-1: rgba(109, 93, 251, 0.20);
-  --bg-glow-2: rgba(147, 51, 234, 0.15);
-  --surface: #15172a;
-  --surface-2: #1b1e34;
-  --surface-3: #242843;
-  --border: #282c46;
-  --border-strong: #3a3f63;
+  --bg: #07080f;
+  --bg-glow-1: rgba(109, 93, 251, 0.18);
+  --bg-glow-2: rgba(147, 51, 234, 0.13);
+  --surface: #12131f;
+  --surface-2: #171827;
+  --surface-3: #20223a;
+  --border: #23253c;
+  --border-strong: #34375a;
+  --hairline: rgba(255, 255, 255, 0.05);
   --text: #ffffff;
   --text-muted: #b7bbd4;
   --text-faint: #7f85a4;
@@ -61,10 +63,10 @@
   --code-scroll: #313752;
   --overlay: rgba(0, 0, 0, 0.62);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.66);
-  --ring: 0 0 0 3px rgba(139, 125, 255, 0.30);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.34);
+  --shadow-md: 0 16px 44px -14px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 40px 90px -28px rgba(0, 0, 0, 0.8);
+  --ring: 0 0 0 3px rgba(139, 125, 255, 0.28);
   --scroll-thumb: #353a5c;
   --scroll-thumb-hover: #454b72;
 }
@@ -386,6 +388,62 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .model-section { margin-bottom: 28px; padding: 20px 22px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .model-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .model-section-head .primary { width: auto; flex: 0 0 auto; padding: 9px 18px; }
+
+/* ============================================================
+   高级感 · 整体视觉升级层（追加覆盖，纯增强不破坏结构）
+   ============================================================ */
+body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; letter-spacing: 0.01em; }
+h1, .dash-title, .settings-head h1 { letter-spacing: -0.022em; }
+h2, h3 { letter-spacing: -0.012em; }
+
+/* 顶栏发丝级分割线 + 品牌图标内高光 */
+.topbar { border-bottom: 1px solid var(--hairline); }
+.brand-mark { box-shadow: 0 10px 26px -6px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+
+/* 卡片：细腻描边 + 更柔更有景深的悬浮 */
+.panel, .dash-card, .model-card, .model-section, .step-surface, .project-config, .entry-card, .create-modal, .add-model-modal {
+  transition: transform 0.22s cubic-bezier(.2, .7, .3, 1), box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+}
+.dash-card:hover, .model-card:hover, .entry-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+.new-card { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface)); }
+.step-surface, .project-config { box-shadow: var(--shadow-md); }
+
+/* 主按钮：渐变 + 顶部内高光 sheen */
+.primary { position: relative; overflow: hidden; box-shadow: 0 8px 22px -6px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
+.primary::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 44%); pointer-events: none; }
+.primary > * { position: relative; z-index: 1; }
+.primary:hover:not(:disabled) { box-shadow: 0 14px 32px -6px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.28); }
+
+/* 弹窗：玻璃模糊 + 更强景深 */
+.modal-overlay { background: var(--overlay); backdrop-filter: blur(10px) saturate(118%); }
+.modal { border: 1px solid var(--hairline); box-shadow: var(--shadow-lg); }
+.modal-head { border-bottom: 1px solid var(--hairline); }
+
+/* 项目卡缩略图：高级渐变占位 */
+.proj-thumb { background: radial-gradient(120% 120% at 30% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%); border-radius: var(--radius); opacity: 1; color: color-mix(in srgb, var(--accent) 55%, var(--text-muted)); }
+
+/* 标签更精致 */
+.ptag { border: 1px solid var(--hairline); }
+.ptag.collab { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+/* 步骤条：激活态发光 */
+.step-node.active { box-shadow: 0 12px 34px -12px var(--accent-glow); border-color: color-mix(in srgb, var(--accent) 52%, var(--border)); }
+.step-node.active .step-idx { box-shadow: 0 4px 12px -2px var(--accent-glow); }
+
+/* 页签 / 分类：激活发光 */
+.dash-cat.active, .script-tab.active, .step-tab.active { box-shadow: 0 8px 20px -8px var(--accent-glow); }
+
+/* 模型设置卡片：细腻分层 */
+.model-card { background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 60%, var(--surface-2)), var(--surface-2)); }
+.model-section-head .primary { box-shadow: 0 6px 16px -6px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
+
+/* 状态胶囊 / 次按钮：更精致的描边 */
+.status-pill, .secondary { border-color: var(--border-strong); }
+.theme-toggle { box-shadow: var(--shadow-xs); }
 .ms-title strong { font-size: 15px; }
 .ms-title em { font-style: normal; font-size: 12px; color: var(--text-muted); margin-left: 10px; }
 .model-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
