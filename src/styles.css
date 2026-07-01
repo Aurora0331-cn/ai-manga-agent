@@ -239,8 +239,45 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 /* ===== 剧本构建工坊 ===== */
 .script-workshop-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border-radius: var(--radius); border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; transition: all 0.16s ease; }
 .script-workshop-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
-.script-platform-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-muted); font-weight: 650; font-size: 13.5px; transition: all 0.16s ease; }
-.script-platform-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+/* ===== 三步流程 步骤条 ===== */
+.stepper { display: flex; align-items: center; gap: 0; max-width: 1200px; margin: 2px auto 22px; padding: 0 4px; }
+.step-node { display: flex; align-items: center; gap: 11px; flex: 1 1 0; padding: 12px 18px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); text-align: left; transition: all 0.16s ease; }
+.step-node .step-idx { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 700; font-size: 13px; }
+.step-node .step-meta { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.step-node .step-meta strong { font-size: 14px; }
+.step-node .step-meta em { font-style: normal; font-size: 11.5px; color: var(--text-muted); }
+.step-node:not(.locked):hover { border-color: var(--border-strong); }
+.step-node.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: var(--ring); }
+.step-node.active .step-idx { background: var(--accent); color: #fff; border-color: var(--accent); }
+.step-node.done .step-idx { background: #16a34a; color: #fff; border-color: #16a34a; }
+.step-node.locked { opacity: 0.5; cursor: not-allowed; }
+.step-line { flex: 0 0 28px; height: 2px; margin: 0 6px; background: var(--border); }
+.step-line.done { background: #16a34a; }
+
+/* ===== 步骤内联工作区 ===== */
+.step-surface { max-width: 1200px; margin: 0 auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.step-surface.surface-wide { max-width: 1320px; }
+.step-surface-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.step-surface-head h2 { font-size: 20px; }
+.step-surface-nav { display: flex; gap: 10px; flex-shrink: 0; }
+
+/* ===== 步骤① 剧本确认 ===== */
+.step1-confirm { display: flex; flex-direction: column; gap: 16px; }
+.step1-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.s1-stat { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 16px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.s1-stat strong { font-size: 24px; color: var(--accent); }
+.s1-stat span { font-size: 12px; color: var(--text-muted); }
+.step1-tip { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+.step-next { align-self: flex-start; }
+.step1-hint { font-size: 12px; color: #16a34a; }
+
+@media (max-width: 900px) {
+  .stepper { flex-direction: column; align-items: stretch; gap: 8px; }
+  .step-line { display: none; }
+  .step1-summary { grid-template-columns: repeat(2, 1fr); }
+  .step-surface-head { flex-direction: column; }
+}
+
 .script-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .script-tab { padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: 13px; }
 .script-tab:hover { border-color: var(--border-strong); color: var(--text); }

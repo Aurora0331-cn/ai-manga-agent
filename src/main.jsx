@@ -75,13 +75,16 @@ function App() {
   });
 
   // 二级弹窗
-  const [assetModal, setAssetModal] = useState(false);
-  const [episodeModal, setEpisodeModal] = useState(false);
   const [scriptModal, setScriptModal] = useState(false);
   const [scriptMode, setScriptMode] = useState('generate'); // generate | novel | optimize
   const [scriptInput, setScriptInput] = useState('');
   const [scriptOutput, setScriptOutput] = useState('');
   const [scriptSkillId, setScriptSkillId] = useState('');
+
+  // 三步流程：1 剧本构造 → 2 资产构成 → 3 分镜提示词
+  const [step, setStep] = useState(1);
+  const [scriptConfirmed, setScriptConfirmed] = useState(false);
+  const [assetsConfirmed, setAssetsConfirmed] = useState(false);
 
   // 美术资产
   const [assetSel, setAssetSel] = useState({ characters: [], scenes: [], props: [] });
@@ -255,6 +258,9 @@ function App() {
         props: p.bible.props.map((pr) => pr.name)
       });
       setAssetItems({});
+      setScriptConfirmed(false);
+      setAssetsConfirmed(false);
+      setStep(1);
       setAssetView(null);
       setAssetCat('characters');
       setAssetAges({});
@@ -498,6 +504,31 @@ function App() {
         </div>
       </section>
 
+      <nav className="stepper">
+        {[
+          { n: 1, label: '剧本构造', desc: '生成 / 优化 / 解析' },
+          { n: 2, label: '资产构成', desc: '角色 / 场景 / 道具' },
+          { n: 3, label: '分镜提示词', desc: '逐镜号生成' },
+        ].map((s, i) => {
+          const unlocked = s.n === 1 || (s.n === 2 && scriptConfirmed) || (s.n === 3 && assetsConfirmed);
+          const done = (s.n === 1 && scriptConfirmed) || (s.n === 2 && assetsConfirmed);
+          const active = step === s.n;
+          return (
+            <React.Fragment key={s.n}>
+              <button type="button"
+                className={`step-node${active ? ' active' : ''}${done ? ' done' : ''}${unlocked ? '' : ' locked'}`}
+                onClick={() => { if (unlocked) setStep(s.n); }}
+                disabled={!unlocked}>
+                <span className="step-idx">{done ? <CheckSquare size={15} /> : s.n}</span>
+                <span className="step-meta"><strong>{s.label}</strong><em>{s.desc}</em></span>
+              </button>
+              {i < 2 && <span className={`step-line${done ? ' done' : ''}`} />}
+            </React.Fragment>
+          );
+        })}
+      </nav>
+
+      {step === 1 && (
       <section className="home-grid">
         <aside className="panel input-panel">
           <div className="panel-title"><FileText size={18} /><span>整剧输入</span></div>
@@ -519,9 +550,6 @@ function App() {
           <button type="button" className="script-workshop-btn" onClick={() => setScriptModal(true)}>
             <Sparkles size={16} />剧本构建工坊 · 生成 / 小说转 / 优化
           </button>
-          <button type="button" className="script-platform-btn" onClick={() => window.open('http://127.0.0.1:8005', '_blank', 'noopener')} title="在本机打开 PlotPilot（墨枢）剧本创作平台，需先在本地启动 PlotPilot">
-            <FileText size={16} />剧本创作平台 · PlotPilot（本地）
-          </button>
           <textarea value={script} onChange={(e) => setScript(e.target.value)} />
           <button className="primary" onClick={parseProject} disabled={loading === 'parse'}>
             {loading === 'parse' ? <RefreshCw className="spin" size={18} /> : <Layers size={18} />}
@@ -532,27 +560,25 @@ function App() {
         <section className="panel overview-panel">
           <div className="panel-title"><Sparkles size={18} /><span>工作台</span></div>
           {!project ? (
-            <div className="empty-state">上传或粘贴整部剧本并点击「解析剧本」后，这里会出现美术资产与剧集提示词两个工作入口。</div>
+            <div className="empty-state">上传或粘贴整部剧本并点击「解析剧本」，确认无误后即可进入下一步「资产构成」。</div>
           ) : (
-            <div className="entry-grid">
-              <button className="entry-card" onClick={() => setAssetModal(true)}>
-                <div className="entry-icon assets"><Box size={22} /></div>
-                <h3>美术资产提示词</h3>
-                <p className="entry-stat">角色 {b.characters.length} · 场景 {b.scenes.length} · 道具 {b.props.length}</p>
-                <p className="entry-desc">从全剧提取的资产词条，可单选/多选/全选后生成文生图提示词。</p>
-                <span className="entry-go">选择并生成 →</span>
+            <div className="step1-confirm">
+              <div className="step1-summary">
+                <div className="s1-stat"><strong>{project.episodes.length}</strong><span>集</span></div>
+                <div className="s1-stat"><strong>{b.characters.length}</strong><span>角色</span></div>
+                <div className="s1-stat"><strong>{b.scenes.length}</strong><span>场景</span></div>
+                <div className="s1-stat"><strong>{b.props.length}</strong><span>道具</span></div>
+              </div>
+              <p className="step1-tip">剧本已解析。请核对左侧剧本正文与上方统计——需要修改可在左侧编辑后重新「解析剧本」。确认无误后进入「资产构成」。</p>
+              <button className="primary step-next" onClick={() => { setScriptConfirmed(true); setStep(2); }}>
+                确认剧本无误，进入资产构成 →
               </button>
-              <button className="entry-card" onClick={() => setEpisodeModal(true)}>
-                <div className="entry-icon eps"><Layers size={22} /></div>
-                <h3>剧集提示词</h3>
-                <p className="entry-stat">共 {project.episodes.length} 集</p>
-                <p className="entry-desc">选择剧集与参数，生成逐镜头视频提示词，支持多选复制与导出。</p>
-                <span className="entry-go">进入工作台 →</span>
-              </button>
+              {scriptConfirmed && <p className="step1-hint">已确认。可点上方步骤条随时回来修改，或前往「资产构成 / 分镜提示词」。</p>}
             </div>
           )}
         </section>
       </section>
+      )}
 
       {/* ===== 剧本构建工坊 ===== */}
       {scriptModal && (
@@ -599,9 +625,19 @@ function App() {
         </Modal>
       )}
 
-      {/* ===== 美术资产库二级弹窗 ===== */}
-      {assetModal && project && (
-        <Modal title="美术资产库" subtitle={`从全剧提取 · 共 ${b.characters.length + b.scenes.length + b.props.length} 项 · 已生成 ${assetGenCount}`} onClose={() => setAssetModal(false)}>
+      {/* ===== 步骤② 资产构成（内联工作区） ===== */}
+      {step === 2 && project && (
+        <section className="step-surface">
+          <div className="step-surface-head">
+            <div>
+              <h2>资产构成 · 美术资产库</h2>
+              <p className="modal-sub">从全剧提取 · 共 {b.characters.length + b.scenes.length + b.props.length} 项 · 已生成 {assetGenCount}</p>
+            </div>
+            <div className="step-surface-nav">
+              <button className="secondary" onClick={() => setStep(1)}>← 返回剧本</button>
+              <button className="primary" onClick={() => { setAssetsConfirmed(true); setStep(3); }} disabled={!assetGenCount} title={!assetGenCount ? '请至少生成一项资产提示词' : ''}>确认资产无误，进入分镜提示词 →</button>
+            </div>
+          </div>
           <div className="modal-settings">
             <SelectField label="美术资产 SKILL" value={assetSkillId}
               options={assetSkillOptions.map((t) => t.id)}
@@ -752,11 +788,11 @@ function App() {
               })() : <div className="empty-state">点击左侧资产卡片，查看或生成它的文生图提示词。</div>}
             </div>
           </div>
-        </Modal>
+        </section>
       )}
 
-      {/* ===== 剧集提示词二级弹窗 ===== */}
-      {episodeModal && project && (() => {
+      {/* ===== 步骤③ 分镜提示词（内联工作区） ===== */}
+      {step === 3 && project && (() => {
         const fEp = focusedScene ? project.episodes.find((e) => e.id === focusedScene.episodeId) : null;
         const fScene = fEp ? episodeScenes(fEp).find((s) => s.id === focusedScene.sceneId) : null;
         const sceneMd = (fScene && sceneOutputs[fScene.id]) || '';
@@ -764,7 +800,16 @@ function App() {
         const totalScenes = project.episodes.reduce((n, ep) => n + episodeScenes(ep).length, 0);
         const doneScenes = Object.values(sceneOutputs).filter(Boolean).length;
         return (
-        <Modal className="modal-wide" title="剧集提示词工作台" subtitle={`共 ${project.episodes.length} 集 · ${totalScenes} 场次 · 已生成 ${doneScenes}`} onClose={() => setEpisodeModal(false)}>
+        <section className="step-surface surface-wide">
+          <div className="step-surface-head">
+            <div>
+              <h2>分镜提示词工作台</h2>
+              <p className="modal-sub">共 {project.episodes.length} 集 · {totalScenes} 场次 · 已生成 {doneScenes}</p>
+            </div>
+            <div className="step-surface-nav">
+              <button className="secondary" onClick={() => setStep(2)}>← 返回资产</button>
+            </div>
+          </div>
           <div className="ep-workbench">
             {/* 左栏：前置设置 + 剧集→场次 */}
             <div className="ep-left">
@@ -848,7 +893,7 @@ function App() {
               </div>
             </div>
           </div>
-        </Modal>
+        </section>
         );
       })()}
 
