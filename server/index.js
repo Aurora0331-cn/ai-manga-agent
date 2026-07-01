@@ -19,6 +19,9 @@ const skillUploadDir = path.resolve(rootDir, 'skill-templates');
 const verticalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-2-vertical-real-person-prompt.txt');
 const horizontalRealPersonSkillPath = path.resolve(rootDir, 'skills', 'template-3-horizontal-real-person-prompt.txt');
 const assetSkillPath = path.resolve(rootDir, 'skills', 'template-asset-art-asset-prompt.md');
+const scriptGenerateSkillPath = path.resolve(rootDir, 'skills', 'template-script-generate.md');
+const scriptNovelSkillPath = path.resolve(rootDir, 'skills', 'template-script-novel.md');
+const scriptOptimizeSkillPath = path.resolve(rootDir, 'skills', 'template-script-optimize.md');
 
 const app = express();
 const maxBodyMb = Number(process.env.MAX_BODY_MB) || 20;
@@ -60,6 +63,30 @@ const builtInSkillTemplates = [
     path: assetSkillPath,
     source: 'built-in',
     kind: 'asset'
+  },
+  {
+    id: 'script-generate',
+    name: '生成剧本 SKILL',
+    description: '按创意/大纲生成完整短剧剧本',
+    path: scriptGenerateSkillPath,
+    source: 'built-in',
+    kind: 'script'
+  },
+  {
+    id: 'script-novel',
+    name: '小说转剧本 SKILL',
+    description: '小说原文忠实改编成短剧剧本',
+    path: scriptNovelSkillPath,
+    source: 'built-in',
+    kind: 'script'
+  },
+  {
+    id: 'script-optimize',
+    name: '优化完善剧本 SKILL',
+    description: '粗剧本润色补全为完整剧本',
+    path: scriptOptimizeSkillPath,
+    source: 'built-in',
+    kind: 'script'
   }
 ];
 
@@ -1226,7 +1253,7 @@ app.post('/api/skill-templates/upload', upload.single('skillFile'), async (req, 
       path: filePath,
       fileName,
       source: 'user',
-      kind: (normalizeText(req.body.kind || '') === 'video') ? 'video' : 'asset'
+      kind: (['video', 'script'].includes(normalizeText(req.body.kind || '')) ? normalizeText(req.body.kind) : 'asset')
     };
     userSkillTemplates.set(id, template);
     res.json({ template: listSkillTemplates().find((item) => item.id === id) });
@@ -1498,6 +1525,41 @@ ${skill.slice(0, 24000)}`
   return { mode: 'llm', provider: config.providerName, model: config.model, modules, markdown };
 }
 
+// 剧本构建工坊：按所选 SKILL（生成/小说转/优化）产出完整剧本正文（纯 Markdown）。
+async function callScriptLLM({ skill, mode, input, settings, llm }) {
+  const config = resolveLlmConfig(llm);
+  if (!config.apiKey) return null;
+  const modeLabel = mode === 'novel' ? '小说转剧本' : mode === 'optimize' ? '优化完善剧本' : '生成剧本';
+  const payload = {
+    model: config.model,
+    messages: [
+      {
+        role: 'system',
+        content: `你是专业短剧编剧，当前任务：${modeLabel}。严格遵循下方 SKILL 的创作原则与输出格式，用中文直接输出剧本正文；不要输出 JSON、不要用代码块包裹、不要任何创作说明或点评。\n\n【SKILL】\n${String(skill || '').slice(0, 30000)}`
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({ 任务: modeLabel, 参数: settings || {}, 用户输入: String(input || '').slice(0, 120000) })
+      }
+    ],
+    temperature: mode === 'novel' ? 0.45 : 0.8,
+    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 16000
+  };
+  const data = await chatCompletion(config, payload);
+  const choice = data.choices?.[0] || {};
+  const msg = choice.message || {};
+  const finishReason = choice.finish_reason;
+  const content = stripMarkdownFence(msg.content || msg.reasoning_content || '').trim();
+  console.info(`Script LLM done (${mode}): finish_reason=${finishReason} usage=${JSON.stringify(data.usage || {})} len=${content.length}`);
+  if (finishReason === 'length' && content.length >= 100) {
+    return { mode: 'llm', provider: config.providerName, model: config.model, markdown: content + '\n\n（注：内容较长被截断，可调高 LLM_MAX_TOKENS 或分批生成。）' };
+  }
+  if (content.length < 100) {
+    throw new Error(`剧本生成内容不完整（finish_reason=${finishReason}，长度=${content.length}）。`);
+  }
+  return { mode: 'llm', provider: config.providerName, model: config.model, markdown: content };
+}
+
 // 用 LLM 通读剧本，智能识别真实的角色/场景/道具清单（替代规则提取）。
 async function callAssetAnalyzeLLM({ script, llm }) {
   const config = resolveLlmConfig(llm);
@@ -1729,6 +1791,53 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
       });
     })().catch((error) => {
       console.error(`Asset job failed: ${error.message}`);
+      failJob(jobId, parseLlmError(error.message));
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ===== 剧本构建工坊：生成 / 小说转 / 优化 =====
+app.post('/api/script/build', async (req, res, next) => {
+  try {
+    const { mode = 'generate', input = '', settings = {}, llm = {}, skillTemplateId } = req.body;
+    if (!String(input || '').trim()) return res.status(400).json({ error: '请先填写创意 / 小说 / 粗剧本内容。' });
+    const defaultSkill = mode === 'novel' ? 'script-novel' : mode === 'optimize' ? 'script-optimize' : 'script-generate';
+    const sid = skillTemplateId || defaultSkill;
+    const llmConfig = resolveLlmConfig(llm);
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
+
+    (async () => {
+      const skill = await readSkill(sid);
+      let usedFallback = false;
+      let llmError = llmConfig.apiKey ? null : {
+        code: 'missing_api_key',
+        message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成。`
+      };
+      let output = null;
+      try {
+        output = await callScriptLLM({ skill: skill.content, mode, input, settings, llm });
+      } catch (error) {
+        if (!llmError) llmError = parseLlmError(error.message);
+        console.warn(`Script build fell back: ${error.message}`);
+      }
+      if (!output) {
+        usedFallback = true;
+        output = { markdown: `# 剧本构建未完成\n\n模型未能生成剧本（${llmError?.message || '未知错误'}）。请检查 LLM 设置或换个稳定的模型后重试。\n\n---\n你的原始输入：\n\n${String(input).slice(0, 4000)}` };
+      }
+      finishJob(jobId, {
+        markdown: output.markdown,
+        usedFallback,
+        provider: llmConfig.providerName,
+        model: llmConfig.model,
+        apiKeySource: llmConfig.apiKeySource,
+        llmError,
+        skillTemplate: { id: skill.template.id, name: skill.template.name }
+      });
+    })().catch((error) => {
+      console.error(`Script job failed: ${error.message}`);
       failJob(jobId, parseLlmError(error.message));
     });
   } catch (error) {
