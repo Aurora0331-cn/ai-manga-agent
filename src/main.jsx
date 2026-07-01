@@ -77,6 +77,11 @@ function App() {
   // 二级弹窗
   const [assetModal, setAssetModal] = useState(false);
   const [episodeModal, setEpisodeModal] = useState(false);
+  const [scriptModal, setScriptModal] = useState(false);
+  const [scriptMode, setScriptMode] = useState('generate'); // generate | novel | optimize
+  const [scriptInput, setScriptInput] = useState('');
+  const [scriptOutput, setScriptOutput] = useState('');
+  const [scriptSkillId, setScriptSkillId] = useState('');
 
   // 美术资产
   const [assetSel, setAssetSel] = useState({ characters: [], scenes: [], props: [] });
@@ -194,6 +199,19 @@ function App() {
       const data = await readJsonSafe(res);
       window.open(`${FILE_ORIGIN}${data.url}`, '_blank');
       setNotice(`已导出 ${format.toUpperCase()} 文件。`);
+    } catch (error) { setNotice(error.message); } finally { setLoading(''); }
+  }
+
+  async function buildScript() {
+    const inputText = scriptInput.trim();
+    if (!inputText) { setNotice('请先填写内容（创意 / 小说 / 粗剧本）。'); return; }
+    const defSkill = scriptMode === 'novel' ? 'script-novel' : scriptMode === 'optimize' ? 'script-optimize' : 'script-generate';
+    setLoading('script'); setScriptOutput('');
+    try {
+      const data = await runJob(`${API}/script/build`,
+        { mode: scriptMode, input: inputText, settings, llm, skillTemplateId: scriptSkillId || defSkill });
+      setScriptOutput(data.markdown || '');
+      setNotice(data.usedFallback ? `${mapLlmError(data.llmError)}，剧本未生成完整。` : `已用 ${data.provider} / ${data.model} 生成剧本。`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
 
@@ -460,6 +478,7 @@ function App() {
   const b = project?.bible;
   const videoSkillOptions = skillTemplates.filter((t) => t.kind === 'video' || !t.kind);
   const assetSkillOptions = skillTemplates.filter((t) => t.kind === 'asset' || !t.kind);
+  const scriptSkillOptions = skillTemplates.filter((t) => t.kind === 'script');
 
   return (
     <main className="app-shell">
@@ -497,6 +516,9 @@ function App() {
               }
             }} />
           </label>
+          <button type="button" className="script-workshop-btn" onClick={() => setScriptModal(true)}>
+            <Sparkles size={16} />剧本构建工坊 · 生成 / 小说转 / 优化
+          </button>
           <textarea value={script} onChange={(e) => setScript(e.target.value)} />
           <button className="primary" onClick={parseProject} disabled={loading === 'parse'}>
             {loading === 'parse' ? <RefreshCw className="spin" size={18} /> : <Layers size={18} />}
@@ -528,6 +550,51 @@ function App() {
           )}
         </section>
       </section>
+
+      {/* ===== 剧本构建工坊 ===== */}
+      {scriptModal && (
+        <Modal className="modal-wide" title="剧本构建工坊" subtitle="生成剧本 / 小说转剧本 / 优化完善剧本 —— 产出的剧本可复制或导出，再粘贴到「整剧输入」继续。" onClose={() => setScriptModal(false)}>
+          <div className="script-tabs">
+            {[['generate', '生成剧本'], ['novel', '小说转剧本'], ['optimize', '优化完善剧本']].map(([m, lbl]) => (
+              <button key={m} type="button" className={`script-tab${scriptMode === m ? ' active' : ''}`}
+                onClick={() => { setScriptMode(m); setScriptSkillId(''); }}>{lbl}</button>
+            ))}
+          </div>
+          {scriptSkillOptions.length > 0 && (
+            <div className="modal-settings">
+              <SelectField label="剧本 SKILL"
+                value={scriptSkillId || (scriptMode === 'novel' ? 'script-novel' : scriptMode === 'optimize' ? 'script-optimize' : 'script-generate')}
+                options={scriptSkillOptions.map((t) => t.id)}
+                optionLabels={Object.fromEntries(scriptSkillOptions.map((t) => [t.id, t.name]))}
+                onChange={setScriptSkillId} />
+            </div>
+          )}
+          <div className="script-grid">
+            <div className="script-in">
+              <div className="ep-pane-head"><h3>{scriptMode === 'novel' ? '小说原文' : scriptMode === 'optimize' ? '粗剧本 / 草稿' : '创意 / 题材 / 大纲 / 人设'}</h3></div>
+              <textarea className="script-input" value={scriptInput} onChange={(e) => setScriptInput(e.target.value)}
+                placeholder={scriptMode === 'novel' ? '粘贴小说原文……' : scriptMode === 'optimize' ? '粘贴你的粗剧本 / 草稿……' : '例：都市甜宠，女主是刑侦队长，男主是法医，共 6 集，每集一个案子推进感情线……'} />
+              <button className="primary" onClick={buildScript} disabled={loading === 'script' || !scriptInput.trim()}>
+                {loading === 'script' ? <RefreshCw className="spin" size={16} /> : <Sparkles size={16} />}
+                {scriptMode === 'novel' ? '转成剧本' : scriptMode === 'optimize' ? '优化剧本' : '生成剧本'}
+              </button>
+            </div>
+            <div className="script-out">
+              <div className="result-head">
+                <h3>剧本结果</h3>
+                <div className="actions">
+                  {scriptOutput && <button className="secondary" onClick={() => copyText(scriptOutput, '已复制剧本。')}><Copy size={15} />复制全部</button>}
+                  {scriptOutput && <button className="secondary" onClick={() => exportDoc('docx', '剧本', scriptOutput)}><Download size={15} />Word</button>}
+                  {scriptOutput && <button className="secondary" onClick={() => exportDoc('txt', '剧本', scriptOutput)}><Download size={15} />TXT</button>}
+                </div>
+              </div>
+              {scriptOutput
+                ? <pre className="markdown-view">{scriptOutput}</pre>
+                : <div className="empty-state">{loading === 'script' ? '正在生成剧本，长文可能需要 1-3 分钟……' : '填写左侧内容，点按钮生成剧本。'}</div>}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ===== 美术资产库二级弹窗 ===== */}
       {assetModal && project && (

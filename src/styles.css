@@ -236,6 +236,21 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .shot-block-head .secondary { min-height: 30px; padding: 0 10px; font-size: 12.5px; }
 .shot-block .markdown-view { min-height: 0; max-height: 300px; }
 
+/* ===== 剧本构建工坊 ===== */
+.script-workshop-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border-radius: var(--radius); border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; transition: all 0.16s ease; }
+.script-workshop-btn:hover { background: var(--accent); color: #fff; border-style: solid; }
+.script-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.script-tab { padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: 13px; }
+.script-tab:hover { border-color: var(--border-strong); color: var(--text); }
+.script-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.script-grid { display: grid; grid-template-columns: minmax(0, 42%) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+.script-in, .script-out { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.script-input { min-height: 300px; max-height: 46vh; resize: vertical; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--surface-2); color: var(--text); font-size: 13.5px; line-height: 1.7; font-family: inherit; }
+.script-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.script-out .markdown-view { min-height: 300px; max-height: 52vh; }
+@media (max-width: 900px) { .script-grid { grid-template-columns: 1fr; } }
+
+
 /* ===== Asset groups ===== */
 .asset-group { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: var(--surface-2); }
 .asset-group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
