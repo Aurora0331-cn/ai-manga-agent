@@ -157,6 +157,15 @@ function App() {
     const inst = (modelStore.llm || []).find((i) => i.name === name);
     if (inst && inst.apiKey) setLlm((l) => ({ ...l, providerId: 'custom', baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }));
   }
+  // 打开项目 / 载入实例后，自动把「分析模型」实例同步为本次生成用的 llm（否则会落回默认 OpenAI，导致剧本/资产调用打到 openai.com 而 fetch failed）。
+  useEffect(() => {
+    const inst = (modelStore.llm || []).find((i) => i.name === project?.models?.analysis);
+    if (inst && inst.apiKey) {
+      setLlm((l) => (l.baseUrl === inst.baseUrl && l.apiKey === inst.apiKey && l.model === inst.model && l.providerId === 'custom')
+        ? l
+        : { ...l, providerId: 'custom', baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model });
+    }
+  }, [project?.models?.analysis, modelStore]);
   const [theme, setTheme] = useState(loadTheme);
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
