@@ -1665,7 +1665,7 @@ function fallbackAssetPrompts({ project, assets, settings, ages = {}, styleTone 
   return { mode: 'fallback', modules, markdown: composeAssetMarkdown(modules) };
 }
 
-async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, styleTone = '' }) {
+async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, styleTone = '', characterLook = '', worldview = '' }) {
   const config = resolveLlmConfig(llm);
   if (!config.apiKey) return null;
   const payload = {
@@ -1674,14 +1674,14 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。严格遵循下方 SKILL。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
       },
       {
         role: 'user',
-        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, confirmedAges: ages, styleTone, globalBible: project.bible })
+        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, confirmedAges: ages, styleTone, characterLook, worldview, globalBible: project.bible })
       }
     ],
     temperature: config.temperature,
@@ -1981,7 +1981,7 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
   try {
     const project = projects.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
-    const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1', ages = {}, styleTone = '' } = req.body;
+    const { assets = {}, settings = {}, llm = {}, skillTemplateId = 'template-1', ages = {}, styleTone = '', characterLook = '', worldview = '' } = req.body;
     settings.visualStyle = expandStyle(settings.visualStyle);
     const total = ['characters', 'scenes', 'props']
       .reduce((n, k) => n + (Array.isArray(assets[k]) ? assets[k].length : 0), 0);
@@ -2002,7 +2002,7 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
       };
       let output = null;
       try {
-        output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone });
+        output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone, characterLook, worldview });
       } catch (error) {
         if (!llmError) llmError = parseLlmError(error.message);
         console.warn(`Asset LLM fell back: ${error.message}`);
@@ -2075,6 +2075,41 @@ app.post('/api/script/build', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// 用项目选定的「图像模型实例」生成资产图（OpenAI 兼容 /images/generations）。
+app.post('/api/generate-image', async (req, res, next) => {
+  try {
+    const { prompt = '', image = {}, size = '1024x1024' } = req.body || {};
+    if (!String(prompt).trim()) return res.status(400).json({ error: '缺少图像提示词。' });
+    const baseUrl = normalizeBaseUrl(image.baseUrl || '');
+    if (!baseUrl || !image.apiKey || !image.model) {
+      return res.status(400).json({ error: '未配置图像模型实例（需 Base URL / 模型 ID / API Key）。请在右上角「模型设置」的图像生成模型里添加。' });
+    }
+    const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS) || 120000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(`${baseUrl}/images/generations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${image.apiKey}` },
+        body: JSON.stringify({ model: image.model, prompt: String(prompt).slice(0, 4000), n: 1, size }),
+        signal: controller.signal
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        return res.status(502).json({ error: `图像生成失败：${t.slice(0, 400)}` });
+      }
+      const data = await r.json();
+      const item = (Array.isArray(data?.data) ? data.data[0] : data?.data) || {};
+      const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
+      if (!url) return res.status(502).json({ error: '图像生成返回为空（该模型可能不兼容 /images/generations 接口，可换一个图像模型实例）。' });
+      res.json({ url });
+    } catch (error) {
+      if (error.name === 'AbortError') return res.status(504).json({ error: `图像生成超时（>${timeoutMs}ms）。` });
+      return res.status(502).json({ error: error.message });
+    } finally { clearTimeout(timer); }
+  } catch (error) { next(error); }
 });
 
 app.post('/api/export', async (req, res, next) => {
