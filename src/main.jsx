@@ -46,13 +46,67 @@ const STYLE_NAMES = [
   '日漫风格', '新海诚风格', '国风水墨风格', '游戏原画风格', '皮克斯风格'
 ];
 
-// 项目系统：风格与模型选项（模型栏为项目配置展示，实际生成用 LLM 面板）
+// 项目系统：风格与模型选项
 const PROJECT_STYLE_OPTIONS = ['电影质感', '高清实拍', '动漫风格', '国风水墨', '赛博朋克', '自定义'];
-const MODEL_OPTIONS = {
-  analysis: ['Doubao 2.0', 'Doubao 1.5', 'DeepSeek V4', 'GPT-4o', 'Claude Sonnet 4'],
-  image: ['Seedream 4.5', 'Seedream 3.0', 'Midjourney v6', 'FLUX 1.1'],
-  video: ['Like Pro 1.0', 'Seedance 2.0', 'Kling 2.0', 'Runway Gen-3']
+
+// 视觉风格 → 风格提示词（选风格时自动显示；沿用之前提供的视觉风格库）
+const STYLE_PROMPTS = {
+  '电影质感': 'cinematic lighting, movie still, shot on 35mm, realistic, masterpiece',
+  '高清实拍真人风格': 'photorealistic, raw photo, DSLR, sharp focus, high fidelity, 4k texture',
+  '电影大片风格': 'cinematic lighting, movie still, shot on 35mm, realistic, 8k, masterpiece',
+  '赛博朋克风格': 'cinematic, photorealistic, neon lighting, cyberpunk aesthetic, cool tones, dramatic lighting, shallow depth of field, wet look',
+  '暗黑哥特风格': 'gothic style, dark atmosphere, gloomy, fog, horror theme, muted colors',
+  '日漫风格': 'anime style, 2D animation, cel shading, vibrant colors, clean lines',
+  '新海诚风格': 'Makoto Shinkai style, beautiful sky, lens flare, detailed background, emotional',
+  '国风水墨风格': 'Chinese ink painting, watercolor, traditional art, flowing lines, oriental aesthetic',
+  '游戏原画风格': 'game cg, splash art, highly detailed, epic composition, fantasy style',
+  '皮克斯风格': 'Pixar style, 3D render, cinematic lighting, expressive eyes, heartwarming',
+  '自定义': ''
 };
+const STYLE_OPTIONS = Object.keys(STYLE_PROMPTS);
+
+// ===== 模型设置：预设供应商 + 模型（尽量复刻参考产品的分组） =====
+const MODEL_PRESETS = {
+  llm: [
+    { group: '飞彩 API（官方网关 OpenAI/Claude/Gemini）', baseUrl: 'https://feicai123.top/v1', models: ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.4-nano', 'gpt-5.5', 'deepseek-v4-pro', 'deepseek-v4-flash', 'gemini-3.1-pro', 'gemini-3.5-flash', 'claude-sonnet-4-6'] },
+    { group: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3-mini'] },
+    { group: 'GeekNow', baseUrl: 'https://www.geeknow.top/v1', models: ['gpt-4o', 'gpt-4.1', 'claude-sonnet-4-6', 'claude-opus-4-6', 'deepseek-v4-pro', 'gemini-2.5-pro', 'qwen3-max'] },
+    { group: 'USSN 优尚', baseUrl: 'https://api.ussn.cn/v1', models: ['gpt-5', 'gpt-4.1', 'claude-sonnet-4-20250514', 'deepseek-reasoner', 'gemini-2.5-pro', 'qwen-max'] },
+    { group: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'] },
+    { group: 'Google Gemini（官方直连·免费额度）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'] },
+    { group: '火山引擎 方舟', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-seed-2-0-mini', 'doubao-pro-32k'] },
+    { group: '自定义 (OpenAI 兼容)', baseUrl: '', models: [] }
+  ],
+  image: [
+    { group: '飞彩 API（Flux/GPT-Image/Nano Banana）', baseUrl: 'https://feicai123.top/v1', models: ['gpt-image-2', 'gpt-image-2-all', 'nano-banana-pro-2k', 'flux-1.1', 'seedream-4.5', 'gemini-3.1-flash-image-preview'] },
+    { group: 'OpenAI', baseUrl: 'https://api.openai.com/v1', models: ['gpt-image-1', 'dall-e-3'] },
+    { group: 'Google Gemini Image（官方直连）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-flash-preview-image-generation', 'imagen-3.0'] },
+    { group: 'USSN Gemini 3 Pro Image', baseUrl: 'https://api.ussn.cn/v1', models: ['gemini-3-pro-image-preview'] },
+    { group: '自定义', baseUrl: '', models: [] }
+  ],
+  video: [
+    { group: '飞彩 API（Grok Imagine/Veo/Sora/Seedance）', baseUrl: 'https://feicai123.top/v1', models: ['veo-3', 'veo-3.1', 'grok-video-3', 'sora-2', 'doubao-seedance-1-5-pro-251215', 'kling-2.0'] },
+    { group: 'Google Veo（官方直连）', baseUrl: '', models: ['veo-3', 'veo-3.1-fast-4k'] },
+    { group: 'GeekNow 中转（Sora/Veo/Grok）', baseUrl: 'https://www.geeknow.top/v1', models: ['veo_3_1', 'grok-video-3', 'sora-2'] },
+    { group: 'USSN · VEO 3.1 Fast 4K', baseUrl: 'https://api.ussn.cn/v1', models: ['veo_3_1-fast-4K'] },
+    { group: '火山引擎 方舟', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-seedance-1-5-pro-251215'] },
+    { group: '自定义', baseUrl: '', models: [] }
+  ]
+};
+const MODEL_CATS = [
+  { key: 'llm', label: 'LLM 大语言模型', desc: '用于剧本 / 资产 / 分镜的文本分析生成', field: 'analysis' },
+  { key: 'image', label: '图像生成模型', desc: '用于文生图（美术资产、分镜画面）', field: 'image' },
+  { key: 'video', label: '视频生成模型', desc: '用于视频生成', field: 'video' }
+];
+const IMAGE_RES_OPTIONS = ['1K（1024px，速度快、省额度）', '2K（2048px，细节更好）', '4K（4096px，最高清）'];
+const MODEL_STORE_KEY = 'ai-manga-agent.model-instances';
+function loadModelInstances() {
+  try {
+    const raw = localStorage.getItem(MODEL_STORE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { llm: [], image: [], video: [], imageRes: IMAGE_RES_OPTIONS[0] };
+}
 
 function App() {
   const [script, setScript] = useState(sampleScript);
@@ -73,6 +127,32 @@ function App() {
   const [dashSel, setDashSel] = useState([]);
   const [manageCat, setManageCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+
+  // ===== 模型设置（实例存 localStorage，生成时按请求带 Key）=====
+  const [modelStore, setModelStore] = useState(loadModelInstances);
+  const [addModel, setAddModel] = useState(null); // { cat, group, baseUrl, model, name, apiKey } | null
+  const [cardMenu, setCardMenu] = useState(null); // 打开卡片菜单的项目 id
+  const [renameId, setRenameId] = useState(null);
+  const [renameVal, setRenameVal] = useState('');
+  useEffect(() => { try { localStorage.setItem(MODEL_STORE_KEY, JSON.stringify(modelStore)); } catch { /* ignore */ } }, [modelStore]);
+  function instanceNames(cat) { return (modelStore[cat] || []).map((i) => i.name); }
+  function addModelInstance(cat, inst) { setModelStore((s) => ({ ...s, [cat]: [...(s[cat] || []), { id: `mi_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`, ...inst }] })); }
+  function updateModelInstance(cat, id, patch) { setModelStore((s) => ({ ...s, [cat]: (s[cat] || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) })); }
+  function deleteModelInstance(cat, id) { setModelStore((s) => ({ ...s, [cat]: (s[cat] || []).filter((i) => i.id !== id) })); }
+  async function testModelInstance(inst) {
+    setNotice(`测试「${inst.name}」连接中…`);
+    try {
+      const res = await fetch(`${API}/llm/test`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ llm: { providerId: 'custom', baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model } }) });
+      const data = await res.json();
+      setNotice(data.ok ? `连接成功：${inst.name}（发现 ${data.models?.length || 0} 个模型）` : `连接失败：${data.error?.message || '未知错误'}`);
+    } catch (error) { setNotice(error.message); }
+  }
+  // 选中某个 LLM 实例作为分析模型 → 同时把它设为本次生成用的 llm。
+  function applyAnalysisModel(name) {
+    saveProjectMeta({ models: { ...(project?.models || {}), analysis: name } });
+    const inst = (modelStore.llm || []).find((i) => i.name === name);
+    if (inst && inst.apiKey) setLlm((l) => ({ ...l, providerId: 'custom', baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }));
+  }
   const [theme, setTheme] = useState(loadTheme);
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
@@ -582,11 +662,109 @@ function App() {
       setDashSel([]); setBatchMode(false); loadProjects();
     } catch (error) { setNotice(error.message); }
   }
+  async function patchDashProject(id, patch) {
+    setCardMenu(null);
+    try { await fetch(`${API}/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }); loadProjects(); }
+    catch (error) { setNotice(error.message); }
+  }
+  async function deleteDashProject(id) {
+    setCardMenu(null);
+    try { await fetch(`${API}/projects/${id}`, { method: 'DELETE' }); loadProjects(); }
+    catch (error) { setNotice(error.message); }
+  }
+  async function doRename() {
+    const t = renameVal.trim(); if (!t || !renameId) { setRenameId(null); return; }
+    await patchDashProject(renameId, { title: t });
+    setRenameId(null); setRenameVal('');
+  }
 
   const b = project?.bible;
   const videoSkillOptions = skillTemplates.filter((t) => t.kind === 'video' || !t.kind);
   const assetSkillOptions = skillTemplates.filter((t) => t.kind === 'asset' || !t.kind);
   const scriptSkillOptions = skillTemplates.filter((t) => t.kind === 'script');
+
+  if (view === 'settings') {
+    return (
+      <main className="settings-page">
+        <header className="settings-head">
+          <div>
+            <h1>模型设置</h1>
+            <p className="modal-sub">管理调用的 LLM / 图像 / 视频 模型实例；新增后即可在项目左栏对应下拉选择。API Key 只存本地浏览器、生成时按请求携带。</p>
+          </div>
+          <button className="secondary" onClick={() => setView('dashboard')}><ArrowLeft size={15} />返回</button>
+        </header>
+        {MODEL_CATS.map((c) => (
+          <section key={c.key} className="model-section">
+            <div className="model-section-head">
+              <div className="ms-title"><strong>{c.label}</strong><em>{(modelStore[c.key] || []).length} 实例 · {c.desc}</em></div>
+              <button className="primary" onClick={() => setAddModel({ cat: c.key, group: MODEL_PRESETS[c.key][0].group, baseUrl: MODEL_PRESETS[c.key][0].baseUrl, model: '', name: '', apiKey: '' })}><Plus size={14} />新增模型</button>
+            </div>
+            <div className="model-cards">
+              {(modelStore[c.key] || []).map((inst) => (
+                <div key={inst.id} className="model-card">
+                  <div className="mc-head"><span className="mc-name">{inst.name}</span>{inst.apiKey ? <span className="mc-key ok">Key OK</span> : <span className="mc-key no">无 Key</span>}</div>
+                  <div className="mc-model">{inst.model}</div>
+                  <div className="mc-provider">{inst.group}</div>
+                  <div className="mc-actions">
+                    <button className="secondary" onClick={() => testModelInstance(inst)}>测试</button>
+                    <button className="secondary" onClick={() => setAddModel({ cat: c.key, editId: inst.id, name: inst.name, group: inst.group, baseUrl: inst.baseUrl, model: inst.model, apiKey: inst.apiKey })}>编辑</button>
+                    <button className="secondary danger" onClick={() => deleteModelInstance(c.key, inst.id)}><Trash2 size={13} /></button>
+                  </div>
+                </div>
+              ))}
+              <button className="model-card add" onClick={() => setAddModel({ cat: c.key, group: MODEL_PRESETS[c.key][0].group, baseUrl: MODEL_PRESETS[c.key][0].baseUrl, model: '', name: '', apiKey: '' })}><Plus size={22} /><span>从预设添加</span></button>
+            </div>
+            {c.key === 'image' && (
+              <div className="ms-imageres"><span>图像分辨率</span>
+                <select value={modelStore.imageRes || IMAGE_RES_OPTIONS[0]} onChange={(e) => setModelStore((s) => ({ ...s, imageRes: e.target.value }))}>
+                  {IMAGE_RES_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
+          </section>
+        ))}
+        {addModel && (
+          <div className="modal-overlay" onClick={() => setAddModel(null)}>
+            <div className="modal add-model-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div><h2>新增 {MODEL_CATS.find((c) => c.key === addModel.cat)?.label.split(' ')[0]} 模型实例</h2><p className="modal-sub">左侧选预设，右侧填凭据；可随时切换预设。</p></div>
+                <button className="modal-close" onClick={() => setAddModel(null)}><X size={20} /></button>
+              </div>
+              <div className="add-model-body">
+                <div className="amb-presets">
+                  {MODEL_PRESETS[addModel.cat].map((p) => (
+                    <div key={p.group} className={`amb-group${addModel.group === p.group ? ' active' : ''}`}>
+                      <button className="amb-group-head" onClick={() => setAddModel((a) => ({ ...a, group: p.group, baseUrl: p.baseUrl }))}>{p.group}</button>
+                      {addModel.group === p.group && p.models.map((m) => (
+                        <button key={m} className={`amb-model${addModel.model === m ? ' active' : ''}`} onClick={() => setAddModel((a) => ({ ...a, model: m, name: a.name || m }))}>{m}</button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div className="amb-form">
+                  <label className="field"><span>实例名称（显示在项目下拉）</span><input value={addModel.name} onChange={(e) => setAddModel((a) => ({ ...a, name: e.target.value }))} placeholder="如 飞彩-DeepSeek-Pro" /></label>
+                  <label className="field"><span>Base URL</span><input value={addModel.baseUrl} onChange={(e) => setAddModel((a) => ({ ...a, baseUrl: e.target.value }))} placeholder="https://.../v1" /></label>
+                  <label className="field"><span>模型 ID</span><input value={addModel.model} onChange={(e) => setAddModel((a) => ({ ...a, model: e.target.value }))} placeholder="如 deepseek-v4-pro" /></label>
+                  <label className="field"><span>API Key（存本地浏览器）</span><input type="password" value={addModel.apiKey} onChange={(e) => setAddModel((a) => ({ ...a, apiKey: e.target.value }))} placeholder="sk-..." /></label>
+                  <div className="amb-actions">
+                    <button className="secondary" onClick={() => testModelInstance(addModel)} disabled={!addModel.baseUrl || !addModel.model}>测试连接</button>
+                    <button className="primary" onClick={() => {
+                      if (!addModel.name.trim() || !addModel.model.trim()) { setNotice('请填写实例名称与模型 ID。'); return; }
+                      const payload = { name: addModel.name.trim(), group: addModel.group, baseUrl: addModel.baseUrl, model: addModel.model.trim(), apiKey: addModel.apiKey };
+                      if (addModel.editId) updateModelInstance(addModel.cat, addModel.editId, payload); else addModelInstance(addModel.cat, payload);
+                      setAddModel(null); setNotice('已保存模型实例。');
+                    }}>{addModel.editId ? '保存' : '添加'}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {notice && <div className="toast">{notice}</div>}
+      </main>
+    );
+  }
+  // 占位：settings 分支结束
 
   if (view === 'dashboard') {
     return (
@@ -609,6 +787,7 @@ function App() {
             <button className="primary dash-search-btn" onClick={loadProjects}>搜索</button>
             <button className="secondary" onClick={() => { setFilterType('全部'); setFilterStatus('全部'); setSearchQuery(''); setActiveCategory('工作台'); }}>重置</button>
             <button className={`secondary dash-batch${batchMode ? ' on' : ''}`} onClick={() => { setBatchMode((v) => !v); setDashSel([]); }}><Layers size={15} />批量管理</button>
+            <button type="button" className="theme-toggle" onClick={() => setView('settings')} title="模型设置" aria-label="模型设置"><Settings size={18} /></button>
             <button type="button" className="theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label="切换深色模式">
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -645,11 +824,27 @@ function App() {
               <div className="proj-tags">
                 {p.collaboration && <span className="ptag collab">协作</span>}
                 <span className={`ptag status${p.status === '已完结' ? ' done' : ''}`}>{p.status}</span>
-                {batchMode && <span className="proj-check">{dashSel.includes(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}</span>}
+                {batchMode
+                  ? <span className="proj-check">{dashSel.includes(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}</span>
+                  : <button className="proj-more" onClick={(e) => { e.stopPropagation(); setCardMenu(cardMenu === p.id ? null : p.id); }}>···</button>}
               </div>
               <div className="proj-thumb"><Film size={40} /></div>
               <div className="proj-title">{p.title}</div>
               <div className="proj-meta"><span>{p.aspectRatio}</span><span>{p.style}</span></div>
+              {cardMenu === p.id && (
+                <div className="proj-menu" onClick={(e) => e.stopPropagation()}>
+                  <div className="pm-item has-sub">
+                    <span>移动至分类 ›</span>
+                    <div className="pm-sub">
+                      {['工作台', ...categories].map((cat) => (
+                        <button key={cat} className={p.category === cat ? 'on' : ''} onClick={() => patchDashProject(p.id, { category: cat })}>{cat}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <button className="pm-item" onClick={() => { setRenameId(p.id); setRenameVal(p.title); setCardMenu(null); }}>重命名</button>
+                  <button className="pm-item danger" onClick={() => { if (window.confirm('确认删除该项目？此操作不可恢复。')) deleteDashProject(p.id); }}>删除</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -692,36 +887,65 @@ function App() {
           </div>
         )}
 
+        {renameId && (
+          <div className="modal-overlay" onClick={() => setRenameId(null)}>
+            <div className="modal manage-cat-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head"><div><h2>重命名项目</h2></div><button className="modal-close" onClick={() => setRenameId(null)}><X size={20} /></button></div>
+              <div className="modal-body">
+                <input className="create-input" value={renameVal} autoFocus onChange={(e) => setRenameVal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') doRename(); }} placeholder="输入新的项目名称" />
+                <div className="create-actions"><button className="primary" onClick={doRename}>保存</button></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {cardMenu && <div className="menu-backdrop" onClick={() => setCardMenu(null)} />}
         {notice && <div className="toast">{notice}</div>}
       </main>
     );
   }
 
+  const styleOptionsWithProject = project && !STYLE_OPTIONS.includes(project.style) ? [project.style, ...STYLE_OPTIONS] : STYLE_OPTIONS;
   return (
     <main className="app-shell workspace">
       <aside className="project-config">
-        <div className="pc-row"><span>分辨率</span><strong>{project?.aspectRatio || settings.aspectRatio}</strong></div>
-        <div className="pc-row"><span>风格</span><strong>{project?.style || '电影质感'}</strong></div>
+        <label className="pc-field pc-inline"><span>分辨率</span>
+          <select value={project?.aspectRatio || '9:16'} onChange={(e) => { saveProjectMeta({ aspectRatio: e.target.value }); setSettings((s) => ({ ...s, aspectRatio: e.target.value })); }}>
+            <option value="9:16">9:16</option><option value="16:9">16:9</option>
+          </select>
+        </label>
+        <label className="pc-field pc-inline"><span>风格</span>
+          <select value={project?.style || '电影质感'} onChange={(e) => { const st = e.target.value; const pr = STYLE_PROMPTS[st] ?? project?.stylePrompt ?? ''; saveProjectMeta({ style: st, stylePrompt: pr }); setSettings((s) => ({ ...s, visualStyle: pr || st })); }}>
+            {styleOptionsWithProject.map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+        </label>
         <div className="pc-row"><span>创建时间</span><strong className="pc-time">{project?.createdAt ? new Date(project.createdAt).toLocaleString('zh-CN') : '-'}</strong></div>
         <div className="pc-block">
           <span>风格提示词</span>
-          <div className="pc-prompt">{project?.stylePrompt || 'cinematic lighting, movie still, shot on 35mm, realistic, masterpiece'}</div>
+          <textarea className="pc-prompt pc-prompt-edit" value={project?.stylePrompt || ''} placeholder="选择风格自动带出，可自定义修改" onChange={(e) => { saveProjectMeta({ stylePrompt: e.target.value }); setSettings((s) => ({ ...s, visualStyle: e.target.value })); }} />
         </div>
         <label className="pc-field"><span>分析模型</span>
-          <select value={project?.models?.analysis || 'Doubao 2.0'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), analysis: e.target.value } })}>
-            {MODEL_OPTIONS.analysis.map((m) => <option key={m}>{m}</option>)}
+          <select value={project?.models?.analysis || ''} onChange={(e) => applyAnalysisModel(e.target.value)}>
+            {instanceNames('llm').length === 0 && <option value="">未配置 · 去模型设置添加</option>}
+            {project?.models?.analysis && !instanceNames('llm').includes(project.models.analysis) && <option value={project.models.analysis}>{project.models.analysis}（未接实例）</option>}
+            {instanceNames('llm').map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
         <label className="pc-field"><span>图像模型</span>
-          <select value={project?.models?.image || 'Seedream 4.5'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), image: e.target.value } })}>
-            {MODEL_OPTIONS.image.map((m) => <option key={m}>{m}</option>)}
+          <select value={project?.models?.image || ''} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), image: e.target.value } })}>
+            {instanceNames('image').length === 0 && <option value="">未配置 · 去模型设置添加</option>}
+            {project?.models?.image && !instanceNames('image').includes(project.models.image) && <option value={project.models.image}>{project.models.image}（未接实例）</option>}
+            {instanceNames('image').map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
         <label className="pc-field"><span>视频模型</span>
-          <select value={project?.models?.video || 'Like Pro 1.0'} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), video: e.target.value } })}>
-            {MODEL_OPTIONS.video.map((m) => <option key={m}>{m}</option>)}
+          <select value={project?.models?.video || ''} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), video: e.target.value } })}>
+            {instanceNames('video').length === 0 && <option value="">未配置 · 去模型设置添加</option>}
+            {project?.models?.video && !instanceNames('video').includes(project.models.video) && <option value={project.models.video}>{project.models.video}（未接实例）</option>}
+            {instanceNames('video').map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
+        <button className="link-btn pc-settings" onClick={() => setView('settings')}><Settings size={13} />管理模型实例</button>
         <button className="secondary pc-back" onClick={backToDashboard}><ArrowLeft size={15} />返回项目列表</button>
       </aside>
       <div className="workspace-main">
@@ -734,6 +958,7 @@ function App() {
           </div>
         </div>
         <div className="topbar-right">
+          <button type="button" className="theme-toggle" onClick={() => setView('settings')} title="模型设置" aria-label="模型设置"><Settings size={18} /></button>
           <button type="button" className="theme-toggle" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} aria-label="切换深色模式">
             {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
           </button>
