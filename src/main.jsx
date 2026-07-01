@@ -855,7 +855,7 @@ function App() {
           </>
         )}
 
-        {project && (
+        {project && project.episodes && project.episodes.length > 0 && (
           <div className="step1-confirm">
             <div className="step1-summary">
               <div className="s1-stat"><strong>{project.episodes.length}</strong><span>集</span></div>

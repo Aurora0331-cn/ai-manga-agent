@@ -295,7 +295,9 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .dash-filter select { padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-size: 13px; }
 .dash-search-input { width: 220px; padding: 9px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-size: 13px; }
 .dash-search-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
-.dash-search-btn { padding: 9px 20px; }
+.dash-search-btn { padding: 9px 22px; }
+.dash-filters .primary, .dash-filters .secondary, .dash-filters .theme-toggle { width: auto; flex: 0 0 auto; }
+.dash-filters .theme-toggle { width: 40px; height: 40px; }
 .dash-batch.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dash-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
 .dash-cats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
