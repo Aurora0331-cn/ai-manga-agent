@@ -75,8 +75,8 @@ function App() {
   });
 
   // 二级弹窗
-  const [scriptModal, setScriptModal] = useState(false);
   const [scriptMode, setScriptMode] = useState('generate'); // generate | novel | optimize
+  const [s1tab, setS1tab] = useState('paste'); // 剧本构造页签：paste | generate | novel | optimize
   const [scriptInput, setScriptInput] = useState('');
   const [scriptOutput, setScriptOutput] = useState('');
   const [scriptPlan, setScriptPlan] = useState('');
@@ -533,111 +533,111 @@ function App() {
       </nav>
 
       {step === 1 && (
-      <section className="home-grid">
-        <aside className="panel input-panel">
-          <div className="panel-title"><FileText size={18} /><span>整剧输入</span></div>
-          <label className="upload-box">
-            <Upload size={18} />
-            <span>{file ? file.name : '上传 TXT / DOCX'}</span>
-            <input type="file" accept=".txt,.md,.docx" onChange={async (e) => {
-              const f = e.target.files?.[0] || null;
-              setFile(f);
-              if (!f) return;
-              const ext = (f.name.toLowerCase().split('.').pop() || '');
-              if (ext === 'txt' || ext === 'md') {
-                try { setScript(await f.text()); } catch { /* 读取失败则保留文件，交后端解析 */ }
-              } else {
-                setScript(`（已上传 ${f.name}，点击「解析剧本」后将自动提取其文本）`);
-              }
-            }} />
-          </label>
-          <button type="button" className="script-workshop-btn" onClick={() => setScriptModal(true)}>
-            <Sparkles size={16} />剧本构建工坊 · 生成 / 小说转 / 优化
-          </button>
-          <textarea value={script} onChange={(e) => setScript(e.target.value)} />
-          <button className="primary" onClick={parseProject} disabled={loading === 'parse'}>
-            {loading === 'parse' ? <RefreshCw className="spin" size={18} /> : <Layers size={18} />}
-            解析剧本
-          </button>
-        </aside>
+      <section className="step-surface surface-wide">
+        <div className="step-surface-head">
+          <div>
+            <h2>剧本构造</h2>
+            <p className="modal-sub">用 AI 生成 / 小说转 / 优化剧本，或直接粘贴上传已有剧本；解析确认后进入资产构成。</p>
+          </div>
+        </div>
 
-        <section className="panel overview-panel">
-          <div className="panel-title"><Sparkles size={18} /><span>工作台</span></div>
-          {!project ? (
-            <div className="empty-state">上传或粘贴整部剧本并点击「解析剧本」，确认无误后即可进入下一步「资产构成」。</div>
-          ) : (
-            <div className="step1-confirm">
-              <div className="step1-summary">
-                <div className="s1-stat"><strong>{project.episodes.length}</strong><span>集</span></div>
-                <div className="s1-stat"><strong>{b.characters.length}</strong><span>角色</span></div>
-                <div className="s1-stat"><strong>{b.scenes.length}</strong><span>场景</span></div>
-                <div className="s1-stat"><strong>{b.props.length}</strong><span>道具</span></div>
+        <div className="script-tabs">
+          {[['paste', '粘贴 / 上传剧本'], ['generate', '生成剧本'], ['novel', '小说转剧本'], ['optimize', '优化完善剧本']].map(([m, lbl]) => (
+            <button key={m} type="button" className={`script-tab${s1tab === m ? ' active' : ''}`}
+              onClick={() => { setS1tab(m); if (m !== 'paste') { setScriptMode(m); setScriptSkillId(''); } }}>{lbl}</button>
+          ))}
+        </div>
+
+        {s1tab === 'paste' ? (
+          <div className="paste-pane">
+            <label className="upload-box">
+              <Upload size={18} />
+              <span>{file ? file.name : '上传 TXT / DOCX'}</span>
+              <input type="file" accept=".txt,.md,.docx" onChange={async (e) => {
+                const f = e.target.files?.[0] || null;
+                setFile(f);
+                if (!f) return;
+                const ext = (f.name.toLowerCase().split('.').pop() || '');
+                if (ext === 'txt' || ext === 'md') {
+                  try { setScript(await f.text()); } catch { /* 读取失败则保留文件，交后端解析 */ }
+                } else {
+                  setScript(`（已上传 ${f.name}，点击「解析剧本」后将自动提取其文本）`);
+                }
+              }} />
+            </label>
+            <textarea className="script-input paste-textarea" value={script} onChange={(e) => setScript(e.target.value)}
+              placeholder="在此粘贴整部剧本；或先在上方「生成剧本 / 小说转 / 优化」里产出，再点「用这份剧本继续」带过来……" />
+            <button className="primary" onClick={parseProject} disabled={loading === 'parse' || !script.trim()}>
+              {loading === 'parse' ? <RefreshCw className="spin" size={18} /> : <Layers size={18} />}
+              解析剧本
+            </button>
+          </div>
+        ) : (
+          <>
+            {scriptSkillOptions.length > 0 && (
+              <div className="modal-settings">
+                <SelectField label="剧本 SKILL"
+                  value={scriptSkillId || (s1tab === 'novel' ? 'script-novel' : s1tab === 'optimize' ? 'script-optimize' : 'script-generate')}
+                  options={scriptSkillOptions.map((t) => t.id)}
+                  optionLabels={Object.fromEntries(scriptSkillOptions.map((t) => [t.id, t.name]))}
+                  onChange={setScriptSkillId} />
               </div>
-              <p className="step1-tip">剧本已解析。请核对左侧剧本正文与上方统计——需要修改可在左侧编辑后重新「解析剧本」。确认无误后进入「资产构成」。</p>
-              <button className="primary step-next" onClick={() => { setScriptConfirmed(true); setStep(2); }}>
-                确认剧本无误，进入资产构成 →
-              </button>
-              {scriptConfirmed && <p className="step1-hint">已确认。可点上方步骤条随时回来修改，或前往「资产构成 / 分镜提示词」。</p>}
+            )}
+            <div className="script-grid">
+              <div className="script-in">
+                <div className="ep-pane-head"><h3>{s1tab === 'novel' ? '小说原文' : s1tab === 'optimize' ? '粗剧本 / 草稿' : '创意 / 题材 / 大纲 / 人设'}</h3></div>
+                <textarea className="script-input" value={scriptInput} onChange={(e) => setScriptInput(e.target.value)}
+                  placeholder={s1tab === 'novel' ? '粘贴小说原文……' : s1tab === 'optimize' ? '粘贴你的粗剧本 / 草稿……' : '例：都市甜宠，女主是刑侦队长，男主是法医，共 6 集，每集一个案子推进感情线……'} />
+                <button className="primary" onClick={buildScript} disabled={loading === 'script' || !scriptInput.trim()}>
+                  {loading === 'script' ? <RefreshCw className="spin" size={16} /> : <Sparkles size={16} />}
+                  {s1tab === 'novel' ? '转成剧本' : s1tab === 'optimize' ? '优化剧本' : '生成剧本'}
+                </button>
+              </div>
+              <div className="script-out">
+                <div className="result-head">
+                  <h3>剧本结果</h3>
+                  <div className="actions">
+                    {scriptOutput && <button className="secondary" onClick={() => { setScript(scriptOutput); setS1tab('paste'); setNotice('已载入这份剧本，去「粘贴 / 上传剧本」页点「解析剧本」。'); }}><Layers size={15} />用这份剧本继续</button>}
+                    {scriptOutput && <button className="secondary" onClick={() => copyText(scriptOutput, '已复制剧本。')}><Copy size={15} />复制</button>}
+                    {scriptOutput && <button className="secondary" onClick={() => exportDoc('docx', '剧本', scriptOutput)}><Download size={15} />Word</button>}
+                    {scriptOutput && <button className="secondary" onClick={() => exportDoc('txt', '剧本', scriptOutput)}><Download size={15} />TXT</button>}
+                  </div>
+                </div>
+                {scriptPlan && (
+                  <div className="plan-block">
+                    <button type="button" className="plan-head" onClick={() => setShowPlan((v) => !v)}>
+                      <span className="plan-caret">{showPlan ? '▾' : '▸'}</span>
+                      <strong>宏观规划</strong>
+                      <em>PlotPilot 式第一阶段 · 题材/人物/世界观/分集大纲</em>
+                      <span className="plan-copy" onClick={(e) => { e.stopPropagation(); copyText(scriptPlan, '已复制宏观规划。'); }}><Copy size={13} />复制</span>
+                    </button>
+                    {showPlan && <pre className="markdown-view plan-view">{scriptPlan}</pre>}
+                  </div>
+                )}
+                {scriptOutput
+                  ? <pre className="markdown-view">{scriptOutput}</pre>
+                  : <div className="empty-state">{loading === 'script' ? '正在按 PlotPilot 式双阶段生成：先出宏观规划，再据此成稿，可能需要 2-4 分钟……' : '填写左侧内容，点按钮生成剧本。'}</div>}
+              </div>
             </div>
-          )}
-        </section>
+          </>
+        )}
+
+        {project && (
+          <div className="step1-confirm">
+            <div className="step1-summary">
+              <div className="s1-stat"><strong>{project.episodes.length}</strong><span>集</span></div>
+              <div className="s1-stat"><strong>{b.characters.length}</strong><span>角色</span></div>
+              <div className="s1-stat"><strong>{b.scenes.length}</strong><span>场景</span></div>
+              <div className="s1-stat"><strong>{b.props.length}</strong><span>道具</span></div>
+            </div>
+            <p className="step1-tip">剧本已解析。核对无误后进入「资产构成」；要改可回「粘贴 / 上传剧本」页编辑后重新解析。</p>
+            <button className="primary step-next" onClick={() => { setScriptConfirmed(true); setStep(2); }}>
+              确认剧本无误，进入资产构成 →
+            </button>
+            {scriptConfirmed && <p className="step1-hint">已确认。可点上方步骤条随时回来修改。</p>}
+          </div>
+        )}
       </section>
-      )}
-
-      {/* ===== 剧本构建工坊 ===== */}
-      {scriptModal && (
-        <Modal className="modal-wide" title="剧本构建工坊" subtitle="生成剧本 / 小说转剧本 / 优化完善剧本 —— 产出的剧本可复制或导出，再粘贴到「整剧输入」继续。" onClose={() => setScriptModal(false)}>
-          <div className="script-tabs">
-            {[['generate', '生成剧本'], ['novel', '小说转剧本'], ['optimize', '优化完善剧本']].map(([m, lbl]) => (
-              <button key={m} type="button" className={`script-tab${scriptMode === m ? ' active' : ''}`}
-                onClick={() => { setScriptMode(m); setScriptSkillId(''); }}>{lbl}</button>
-            ))}
-          </div>
-          {scriptSkillOptions.length > 0 && (
-            <div className="modal-settings">
-              <SelectField label="剧本 SKILL"
-                value={scriptSkillId || (scriptMode === 'novel' ? 'script-novel' : scriptMode === 'optimize' ? 'script-optimize' : 'script-generate')}
-                options={scriptSkillOptions.map((t) => t.id)}
-                optionLabels={Object.fromEntries(scriptSkillOptions.map((t) => [t.id, t.name]))}
-                onChange={setScriptSkillId} />
-            </div>
-          )}
-          <div className="script-grid">
-            <div className="script-in">
-              <div className="ep-pane-head"><h3>{scriptMode === 'novel' ? '小说原文' : scriptMode === 'optimize' ? '粗剧本 / 草稿' : '创意 / 题材 / 大纲 / 人设'}</h3></div>
-              <textarea className="script-input" value={scriptInput} onChange={(e) => setScriptInput(e.target.value)}
-                placeholder={scriptMode === 'novel' ? '粘贴小说原文……' : scriptMode === 'optimize' ? '粘贴你的粗剧本 / 草稿……' : '例：都市甜宠，女主是刑侦队长，男主是法医，共 6 集，每集一个案子推进感情线……'} />
-              <button className="primary" onClick={buildScript} disabled={loading === 'script' || !scriptInput.trim()}>
-                {loading === 'script' ? <RefreshCw className="spin" size={16} /> : <Sparkles size={16} />}
-                {scriptMode === 'novel' ? '转成剧本' : scriptMode === 'optimize' ? '优化剧本' : '生成剧本'}
-              </button>
-            </div>
-            <div className="script-out">
-              <div className="result-head">
-                <h3>剧本结果</h3>
-                <div className="actions">
-                  {scriptOutput && <button className="secondary" onClick={() => copyText(scriptOutput, '已复制剧本。')}><Copy size={15} />复制全部</button>}
-                  {scriptOutput && <button className="secondary" onClick={() => exportDoc('docx', '剧本', scriptOutput)}><Download size={15} />Word</button>}
-                  {scriptOutput && <button className="secondary" onClick={() => exportDoc('txt', '剧本', scriptOutput)}><Download size={15} />TXT</button>}
-                </div>
-              </div>
-              {scriptPlan && (
-                <div className="plan-block">
-                  <button type="button" className="plan-head" onClick={() => setShowPlan((v) => !v)}>
-                    <span className="plan-caret">{showPlan ? '▾' : '▸'}</span>
-                    <strong>宏观规划</strong>
-                    <em>PlotPilot 式第一阶段 · 题材/人物/世界观/分集大纲</em>
-                    <span className="plan-copy" onClick={(e) => { e.stopPropagation(); copyText(scriptPlan, '已复制宏观规划。'); }}><Copy size={13} />复制</span>
-                  </button>
-                  {showPlan && <pre className="markdown-view plan-view">{scriptPlan}</pre>}
-                </div>
-              )}
-              {scriptOutput
-                ? <pre className="markdown-view">{scriptOutput}</pre>
-                : <div className="empty-state">{loading === 'script' ? '正在按 PlotPilot 式双阶段生成：先出宏观规划，再据此成稿，可能需要 2-4 分钟……' : '填写左侧内容，点按钮生成剧本。'}</div>}
-            </div>
-          </div>
-        </Modal>
       )}
 
       {/* ===== 步骤② 资产构成（内联工作区） ===== */}

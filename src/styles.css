@@ -282,6 +282,9 @@ h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .script-tab { padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); font-weight: 600; font-size: 13px; }
 .script-tab:hover { border-color: var(--border-strong); color: var(--text); }
 .script-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.paste-pane { display: flex; flex-direction: column; gap: 12px; }
+.paste-pane .upload-box { max-width: 320px; }
+.paste-textarea { min-height: 340px; max-height: 52vh; }
 .script-grid { display: grid; grid-template-columns: minmax(0, 42%) minmax(0, 1fr); gap: 18px; align-items: stretch; }
 .script-in, .script-out { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .script-input { min-height: 300px; max-height: 46vh; resize: vertical; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--surface-2); color: var(--text); font-size: 13.5px; line-height: 1.7; font-family: inherit; }
