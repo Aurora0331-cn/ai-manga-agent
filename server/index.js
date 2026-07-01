@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2133,6 +2134,68 @@ app.post('/api/generate-image', async (req, res, next) => {
         finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : error.message });
       } finally { clearTimeout(timer); }
     })().catch((error) => failJob(jobId, { message: error.message }));
+  } catch (error) { next(error); }
+});
+
+// 取图像字节：支持 data: URL 与 http(s) URL。
+async function imageToBuffer(url) {
+  if (String(url).startsWith('data:')) {
+    const b64 = String(url).split(',')[1] || '';
+    return { buf: Buffer.from(b64, 'base64'), ext: 'png' };
+  }
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`下载失败 ${r.status}`);
+  const ab = await r.arrayBuffer();
+  const ct = r.headers.get('content-type') || '';
+  const ext = ct.includes('jpeg') || ct.includes('jpg') ? 'jpg' : ct.includes('webp') ? 'webp' : 'png';
+  return { buf: Buffer.from(ab), ext };
+}
+
+function safeName(s) {
+  return String(s || '未命名').replace(/[\\/:*?"<>|\n\r\t]+/g, '_').replace(/\s+/g, '').slice(0, 60) || '未命名';
+}
+
+// 单张下载：后端代理取图并带上文件名（解决跨域 + 命名）。
+app.get('/api/download-image', async (req, res, next) => {
+  try {
+    const url = String(req.query.url || '');
+    const name = safeName(req.query.name || '图片');
+    if (!url) return res.status(400).send('缺少 url');
+    const { buf, ext } = await imageToBuffer(url);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name + '.' + ext)}`);
+    res.send(buf);
+  } catch (error) { next(error); }
+});
+
+// 打包下载：body.items = [{ group:'角色'|'场景'|'道具', character, outfit, name, url }]
+// ZIP 内三个文件夹 角色/场景/道具；角色下每人一个以名字命名的子文件夹，放其全部造型。
+app.post('/api/download-assets', async (req, res, next) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: '没有可打包的图片。' });
+    const zip = new JSZip();
+    const roots = { characters: '角色', scenes: '场景', props: '道具' };
+    for (const it of items) {
+      if (!it || !it.url) continue;
+      let buf, ext;
+      try { ({ buf, ext } = await imageToBuffer(it.url)); } catch { continue; }
+      const root = roots[it.group] || roots[it.type] || '角色';
+      let filePath;
+      if (root === '角色') {
+        const person = safeName(it.character || it.name);
+        const fname = safeName(`${person}_${it.outfit || '默认'}`);
+        filePath = `角色/${person}/${fname}.${ext}`;
+      } else {
+        filePath = `${root}/${safeName(it.name)}.${ext}`;
+      }
+      zip.file(filePath, buf);
+    }
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const zipName = safeName(req.body?.zipName || '资产图片') + '.zip';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`);
+    res.send(buffer);
   } catch (error) { next(error); }
 });
 
