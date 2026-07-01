@@ -2077,38 +2077,62 @@ app.post('/api/script/build', async (req, res, next) => {
   }
 });
 
-// 用项目选定的「图像模型实例」生成资产图（OpenAI 兼容 /images/generations）。
+// 参考图 → Blob（data URL 解码 / http 下载）。
+async function refImageToBlob(ref) {
+  if (String(ref).startsWith('data:')) {
+    const b64 = String(ref).split(',')[1] || '';
+    return new Blob([Buffer.from(b64, 'base64')], { type: 'image/png' });
+  }
+  const r = await fetch(ref);
+  const ab = await r.arrayBuffer();
+  return new Blob([Buffer.from(ab)], { type: r.headers.get('content-type') || 'image/png' });
+}
+
+// 用项目选定的「图像模型实例」出图（异步任务，绕开免费层长请求断连）。
+// 有参考图（基准脸）→ /images/edits（保持同脸）；否则 → /images/generations。
 app.post('/api/generate-image', async (req, res, next) => {
   try {
-    const { prompt = '', image = {}, size = '1024x1024' } = req.body || {};
+    const { prompt = '', image = {}, size = '1024x1024', referenceImage = '' } = req.body || {};
     if (!String(prompt).trim()) return res.status(400).json({ error: '缺少图像提示词。' });
     const baseUrl = normalizeBaseUrl(image.baseUrl || '');
     if (!baseUrl || !image.apiKey || !image.model) {
       return res.status(400).json({ error: '未配置图像模型实例（需 Base URL / 模型 ID / API Key）。请在右上角「模型设置」的图像生成模型里添加。' });
     }
-    const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS) || 120000;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const r = await fetch(`${baseUrl}/images/generations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${image.apiKey}` },
-        body: JSON.stringify({ model: image.model, prompt: String(prompt).slice(0, 4000), n: 1, size }),
-        signal: controller.signal
-      });
-      if (!r.ok) {
-        const t = await r.text();
-        return res.status(502).json({ error: `图像生成失败：${t.slice(0, 400)}` });
-      }
-      const data = await r.json();
-      const item = (Array.isArray(data?.data) ? data.data[0] : data?.data) || {};
-      const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
-      if (!url) return res.status(502).json({ error: '图像生成返回为空（该模型可能不兼容 /images/generations 接口，可换一个图像模型实例）。' });
-      res.json({ url });
-    } catch (error) {
-      if (error.name === 'AbortError') return res.status(504).json({ error: `图像生成超时（>${timeoutMs}ms）。` });
-      return res.status(502).json({ error: error.message });
-    } finally { clearTimeout(timer); }
+    const jobId = createJob();
+    res.json({ jobId, status: 'pending' });
+
+    (async () => {
+      const timeoutMs = Number(process.env.IMAGE_TIMEOUT_MS) || 180000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        let r;
+        if (referenceImage) {
+          const form = new FormData();
+          form.append('image', await refImageToBlob(referenceImage), 'reference.png');
+          form.append('model', image.model);
+          form.append('prompt', String(prompt).slice(0, 4000));
+          form.append('n', '1');
+          form.append('size', size);
+          r = await fetch(`${baseUrl}/images/edits`, {
+            method: 'POST', headers: { Authorization: `Bearer ${image.apiKey}` }, body: form, signal: controller.signal
+          });
+        } else {
+          r = await fetch(`${baseUrl}/images/generations`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${image.apiKey}` },
+            body: JSON.stringify({ model: image.model, prompt: String(prompt).slice(0, 4000), n: 1, size }), signal: controller.signal
+          });
+        }
+        if (!r.ok) { const t = await r.text(); finishJob(jobId, { error: `图像生成失败：${t.slice(0, 400)}` }); return; }
+        const data = await r.json();
+        const item = (Array.isArray(data?.data) ? data.data[0] : data?.data) || {};
+        const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
+        if (!url) { finishJob(jobId, { error: '图像生成返回为空（该模型可能不兼容该接口，可换一个图像模型实例）。' }); return; }
+        finishJob(jobId, { url });
+      } catch (error) {
+        finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : error.message });
+      } finally { clearTimeout(timer); }
+    })().catch((error) => failJob(jobId, { message: error.message }));
   } catch (error) { next(error); }
 });
 
