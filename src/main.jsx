@@ -79,6 +79,8 @@ function App() {
   const [scriptMode, setScriptMode] = useState('generate'); // generate | novel | optimize
   const [scriptInput, setScriptInput] = useState('');
   const [scriptOutput, setScriptOutput] = useState('');
+  const [scriptPlan, setScriptPlan] = useState('');
+  const [showPlan, setShowPlan] = useState(true);
   const [scriptSkillId, setScriptSkillId] = useState('');
 
   // 三步流程：1 剧本构造 → 2 资产构成 → 3 分镜提示词
@@ -209,11 +211,13 @@ function App() {
     const inputText = scriptInput.trim();
     if (!inputText) { setNotice('请先填写内容（创意 / 小说 / 粗剧本）。'); return; }
     const defSkill = scriptMode === 'novel' ? 'script-novel' : scriptMode === 'optimize' ? 'script-optimize' : 'script-generate';
-    setLoading('script'); setScriptOutput('');
+    setLoading('script'); setScriptOutput(''); setScriptPlan('');
     try {
       const data = await runJob(`${API}/script/build`,
         { mode: scriptMode, input: inputText, settings, llm, skillTemplateId: scriptSkillId || defSkill });
       setScriptOutput(data.markdown || '');
+      setScriptPlan(data.plan || '');
+      setShowPlan(true);
       setNotice(data.usedFallback ? `${mapLlmError(data.llmError)}，剧本未生成完整。` : `已用 ${data.provider} / ${data.model} 生成剧本。`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
@@ -617,9 +621,20 @@ function App() {
                   {scriptOutput && <button className="secondary" onClick={() => exportDoc('txt', '剧本', scriptOutput)}><Download size={15} />TXT</button>}
                 </div>
               </div>
+              {scriptPlan && (
+                <div className="plan-block">
+                  <button type="button" className="plan-head" onClick={() => setShowPlan((v) => !v)}>
+                    <span className="plan-caret">{showPlan ? '▾' : '▸'}</span>
+                    <strong>宏观规划</strong>
+                    <em>PlotPilot 式第一阶段 · 题材/人物/世界观/分集大纲</em>
+                    <span className="plan-copy" onClick={(e) => { e.stopPropagation(); copyText(scriptPlan, '已复制宏观规划。'); }}><Copy size={13} />复制</span>
+                  </button>
+                  {showPlan && <pre className="markdown-view plan-view">{scriptPlan}</pre>}
+                </div>
+              )}
               {scriptOutput
                 ? <pre className="markdown-view">{scriptOutput}</pre>
-                : <div className="empty-state">{loading === 'script' ? '正在生成剧本，长文可能需要 1-3 分钟……' : '填写左侧内容，点按钮生成剧本。'}</div>}
+                : <div className="empty-state">{loading === 'script' ? '正在按 PlotPilot 式双阶段生成：先出宏观规划，再据此成稿，可能需要 2-4 分钟……' : '填写左侧内容，点按钮生成剧本。'}</div>}
             </div>
           </div>
         </Modal>
