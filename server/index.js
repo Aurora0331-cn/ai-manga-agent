@@ -1526,38 +1526,84 @@ ${skill.slice(0, 24000)}`
 }
 
 // 剧本构建工坊：按所选 SKILL（生成/小说转/优化）产出完整剧本正文（纯 Markdown）。
-async function callScriptLLM({ skill, mode, input, settings, llm }) {
-  const config = resolveLlmConfig(llm);
-  if (!config.apiKey) return null;
-  const modeLabel = mode === 'novel' ? '小说转剧本' : mode === 'optimize' ? '优化完善剧本' : '生成剧本';
+// ===== 移植自 PlotPilot（墨枢）的叙事法则 / 反AI腔协议 / 宏观规划原则 =====
+const PLOTPILOT_NARRATIVE_LAWS = `【高阶叙事法则 · 落笔前先推演，勿机械套模板】
+1. 势能守恒：每集/每场是能量单元。蓄势期累积未释放的冲突势能（压抑/悬念/误会加深）；引爆点把势能转成爽点动能（爆发/反转/碾压）；余震带处理势能衰减与转化（消化战果/关系重塑/锚定新目标）。
+2. 信息锥度：信息释放要有"已知—未知"的锥形梯度——哪些用台词抛出、哪些用画面细节暗示、哪些只让主角知道而观众猜疑、哪些彻底隐藏。
+3. 节奏切变：由"叙述时间/故事时间"之比控制。开篇制造时间膨胀（细节放大入戏）；高潮时间压缩（连续动作、短句冲击）；过渡等速或跳跃。
+4. 情感压强差：情绪来自"预期"与"实际"的落差。铺垫抬高预期再延迟满足；爽点突然释放超预期奖赏。明确每段要制造多大压强差。
+5. 视域锚定：确定本场感知主体（通常主角），所有细节/反应/心理都过该主体的情绪滤镜。`;
+
+const PLOTPILOT_ANTI_AI = `【反AI腔协议 P1-P5（不可违反）+ 替换策略 R1-R8】
+P1 信息密度：每段至少推进一项——具体动作带后果 / 有信息量的对白 / 发现或决定 / 可见位移；禁止连续两段纯写景无人物取舍。
+P2 感官优先：表达情绪/氛围按此顺序——感官细节(温度/光线/声音/触感/气味)→动作变化→对白；禁止跳过前两步直接贴情绪标签。
+P3 角色差异化：不同角色对同一事件反应必须不同（=背景×身体状态×利益关系）；每人有专属紧张小动作。
+P4 节奏与段落：快→短句、动词前移；慢→长短交替、感官穿插；禁止连续3句以上长度相近；独句成段仅用于引爆/揭露/情绪暴击。
+P5 衔接：节拍间无断点、情绪有惯性；禁止用"后来/之后/转眼间"开头省略过渡。
+替换策略：R1情绪→写此刻最可能的小动作(手停住/话顿住/杯子端起又放下)；R2微表情→写完整姿态或让对白自己传递；R3比喻→写体温/光线角度/衣料触感；R4声线→用对白标点断句表现语气；R5纠正式对照→拆成平叙或直接写动作结果；R6破折号→句号断开；R7动物比喻→删掉改人的动作；R8生理性→直接写生理反应(眼睛酸了/鼻子红了/声音发闷)。`;
+
+const PLOTPILOT_MACRO_PRINCIPLES = `【宏观规划原则】
+1. 源设定优先：作者梗概/题材/人物权重最高，不擅自更换题材、时代、身份体系或标志性元素。
+2. 类型发动机：先提炼该题材的持续追看动力（升级/破案/关系推进/权力博弈/真相揭示等），再分配到各集。
+3. 长线动力链：每个结构单元都要看得出"压制或缺口→欲望→阶段目标→阻力→选择→代价→反击或突破→新问题"的因果推进。
+4. 阶段承诺：每集承担一个可追看的阶段问题，集末给阶段回报，同时留下更高压力或诱因，别只做地点切换。
+5. 开篇留存：首集优先建立主角处境、核心欲望、可感知威胁、即时目标和第一次正反馈，别过度铺背景。
+6. 钩子服从原设：每集末留未完成问题或正反馈预期，钩子形态来自原始设定，不硬塞无关阴谋/系统/血脉/豪门/末世外壳。`;
+
+async function scriptChat(config, system, user, temperature, maxTokens) {
   const payload = {
     model: config.model,
-    messages: [
-      {
-        role: 'system',
-        content: `你是专业短剧编剧，当前任务：${modeLabel}。严格遵循下方 SKILL 的创作原则与输出格式，用中文直接输出剧本正文；不要输出 JSON、不要用代码块包裹、不要任何创作说明或点评。\n\n【SKILL】\n${String(skill || '').slice(0, 30000)}`
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({ 任务: modeLabel, 参数: settings || {}, 用户输入: String(input || '').slice(0, 120000) })
-      }
-    ],
-    temperature: mode === 'novel' ? 0.45 : 0.8,
-    max_tokens: Number(process.env.LLM_MAX_TOKENS) || 16000
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    temperature,
+    max_tokens: maxTokens
   };
   const data = await chatCompletion(config, payload);
   const choice = data.choices?.[0] || {};
   const msg = choice.message || {};
-  const finishReason = choice.finish_reason;
   const content = stripMarkdownFence(msg.content || msg.reasoning_content || '').trim();
-  console.info(`Script LLM done (${mode}): finish_reason=${finishReason} usage=${JSON.stringify(data.usage || {})} len=${content.length}`);
-  if (finishReason === 'length' && content.length >= 100) {
-    return { mode: 'llm', provider: config.providerName, model: config.model, markdown: content + '\n\n（注：内容较长被截断，可调高 LLM_MAX_TOKENS 或分批生成。）' };
+  return { content, finishReason: choice.finish_reason, usage: data.usage };
+}
+
+// PlotPilot 式多阶段：generate 走「宏观规划 → 成稿」双阶段；novel/optimize 单阶段但注入叙事法则与反AI协议。
+async function callScriptLLM({ skill, mode, input, settings, llm }) {
+  const config = resolveLlmConfig(llm);
+  if (!config.apiKey) return null;
+  const maxTokens = Number(process.env.LLM_MAX_TOKENS) || 16000;
+  const s = settings || {};
+  let plan = '';
+  let scriptSystem;
+  let scriptUser;
+
+  if (mode === 'generate') {
+    // 阶段一：宏观规划
+    const planSystem = `你是资深短剧总编剧与结构顾问。基于用户创意，产出一份可落地的【短剧宏观规划】。\n${PLOTPILOT_MACRO_PRINCIPLES}\n用中文 markdown 依次输出：一、题材定位与类型发动机（一句话故事 + 持续追看动力）；二、主要人物（3-6个，每人：身份、核心欲望、性格、专属紧张小动作、人物弧光）；三、世界观/规则要点；四、分集大纲（每集：集名 + 核心冲突(谁跟谁、赌注) + 情绪转折 + 爽点/反转 + 集末钩子 + 阶段回报）。只输出规划本身，不写解释与点评。`;
+    const planUser = JSON.stringify({ 任务: '短剧宏观规划', 参数: s, 用户创意: String(input || '').slice(0, 60000) });
+    try {
+      const planRes = await scriptChat(config, planSystem, planUser, 0.7, Math.min(maxTokens, 8000));
+      if (planRes.content.length >= 80) plan = planRes.content;
+      console.info(`Script plan done: finish_reason=${planRes.finishReason} len=${planRes.content.length}`);
+    } catch (error) {
+      console.warn(`Script plan stage failed, continue to draft: ${error.message}`);
+    }
+    // 阶段二：按规划成稿
+    scriptSystem = `你是掌握叙事动力学的短剧编剧。根据【宏观规划】把它写成一部可直接投拍的竖屏短剧【成稿剧本】。\n${PLOTPILOT_NARRATIVE_LAWS}\n${PLOTPILOT_ANTI_AI}\n严格遵循下方 SKILL 的输出格式（集/场次头/人物行/【动作】/台词/OS/字幕），用中文直接输出剧本正文；不要输出 JSON、不要用代码块包裹、不要任何创作说明或点评。\n\n【SKILL】\n${String(skill || '').slice(0, 20000)}`;
+    scriptUser = JSON.stringify({ 任务: '按宏观规划成稿', 参数: s, 宏观规划: plan || '（规划阶段未产出，请你先在心里快速规划再成稿）', 原始创意: String(input || '').slice(0, 20000) });
+  } else {
+    const modeLabel = mode === 'novel' ? '小说转剧本' : '优化完善剧本';
+    scriptSystem = `你是专业短剧编剧，当前任务：${modeLabel}。严格遵循下方 SKILL 的创作原则与输出格式，用中文直接输出剧本正文；不要输出 JSON、不要用代码块包裹、不要任何创作说明或点评。\n${PLOTPILOT_NARRATIVE_LAWS}\n${PLOTPILOT_ANTI_AI}\n\n【SKILL】\n${String(skill || '').slice(0, 20000)}`;
+    scriptUser = JSON.stringify({ 任务: modeLabel, 参数: s, 用户输入: String(input || '').slice(0, 120000) });
+  }
+
+  const res = await scriptChat(config, scriptSystem, scriptUser, mode === 'novel' ? 0.45 : 0.8, maxTokens);
+  const content = res.content;
+  console.info(`Script LLM done (${mode}): finish_reason=${res.finishReason} usage=${JSON.stringify(res.usage || {})} len=${content.length} planLen=${plan.length}`);
+  if (res.finishReason === 'length' && content.length >= 100) {
+    return { mode: 'llm', provider: config.providerName, model: config.model, plan, markdown: content + '\n\n（注：内容较长被截断，可调高 LLM_MAX_TOKENS 或分批生成。）' };
   }
   if (content.length < 100) {
-    throw new Error(`剧本生成内容不完整（finish_reason=${finishReason}，长度=${content.length}）。`);
+    throw new Error(`剧本生成内容不完整（finish_reason=${res.finishReason}，长度=${content.length}）。`);
   }
-  return { mode: 'llm', provider: config.providerName, model: config.model, markdown: content };
+  return { mode: 'llm', provider: config.providerName, model: config.model, plan, markdown: content };
 }
 
 // 用 LLM 通读剧本，智能识别真实的角色/场景/道具清单（替代规则提取）。
@@ -1825,10 +1871,11 @@ app.post('/api/script/build', async (req, res, next) => {
       }
       if (!output) {
         usedFallback = true;
-        output = { markdown: `# 剧本构建未完成\n\n模型未能生成剧本（${llmError?.message || '未知错误'}）。请检查 LLM 设置或换个稳定的模型后重试。\n\n---\n你的原始输入：\n\n${String(input).slice(0, 4000)}` };
+        output = { plan: '', markdown: `# 剧本构建未完成\n\n模型未能生成剧本（${llmError?.message || '未知错误'}）。请检查 LLM 设置或换个稳定的模型后重试。\n\n---\n你的原始输入：\n\n${String(input).slice(0, 4000)}` };
       }
       finishJob(jobId, {
         markdown: output.markdown,
+        plan: output.plan || '',
         usedFallback,
         provider: llmConfig.providerName,
         model: llmConfig.model,
