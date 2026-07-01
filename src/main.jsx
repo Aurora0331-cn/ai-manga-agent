@@ -208,9 +208,11 @@ function App() {
   const [characterLookCustom, setCharacterLookCustom] = useState('');
   const [worldview, setWorldview] = useState('现代都市');
   const [worldviewCustom, setWorldviewCustom] = useState('');
-  const [assetImages, setAssetImages] = useState({}); // assetKey -> 图像 URL
+  const [assetImages, setAssetImages] = useState({}); // imgKey(type,name,outfit) -> 图像 URL
   const [baseFaces, setBaseFaces] = useState({});     // 角色名 -> 基准脸 1:1 大头照 URL
-  const [imgLoading, setImgLoading] = useState('');   // 正在出图的 key
+  const [imgBusy, setImgBusy] = useState({});         // 正在出图的 key 集合（支持并发）
+  const [lightbox, setLightbox] = useState(null);     // {url, name} 点击缩略图放大
+  const [zipBusy, setZipBusy] = useState(false);      // 打包下载中
   const [showAgePanel, setShowAgePanel] = useState(false);
 
   // 剧集提示词
@@ -414,6 +416,9 @@ function App() {
   }
   const assetTotal = (assetSel.characters.length + assetSel.scenes.length + assetSel.props.length);
   const assetKey = (type, name) => `${type}|${name}`;
+  const imgKey = (type, name, outfit = '默认') => `${type}|${name}|${outfit}`;
+  const isImgBusy = (k) => !!imgBusy[k];
+  const setBusy = (k, on) => setImgBusy((m) => { const n = { ...m }; if (on) n[k] = true; else delete n[k]; return n; });
   function mergeAssetItems(items) {
     setAssetItems((prev) => {
       const next = { ...prev };
@@ -432,38 +437,96 @@ function App() {
   function imageInstance() {
     return (modelStore.image || []).find((i) => i.name === project?.models?.image);
   }
-  async function generateAssetImage(type, name) {
-    const key = assetKey(type, name);
-    const prompt = assetItems[key];
-    if (!prompt) { setNotice('请先生成该资产的提示词，再出图。'); return; }
+  // 底层出图：一次一张，返回 url（或 null）。busyKey 用于并发时各自的 loading 状态。
+  async function runImageJob({ prompt, referenceImage = '', size = '', busyKey }) {
+    const inst = imageInstance();
+    if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个（或去右上角模型设置添加并填 Key）。'); return null; }
+    setBusy(busyKey, true);
+    try {
+      const body = { prompt: String(prompt).slice(0, 4000), image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }, referenceImage };
+      if (size) body.size = size;
+      const data = await runJob(`${API}/generate-image`, body);
+      if (data.error || !data.url) throw new Error(data.error || '图像生成失败');
+      return data.url;
+    } catch (error) { setNotice(error.message); return null; }
+    finally { setBusy(busyKey, false); }
+  }
+
+  // 单个造型出图：引用该角色基准脸锁脸。
+  async function generateOutfitImage(charName, outfit) {
+    const key = imgKey('characters', charName, outfit.name);
+    const ref = baseFaces[charName] || '';
+    if (!ref) setNotice('提示：未生成基准脸，出图脸型可能不稳。建议先「生成基准脸」。');
+    const url = await runImageJob({ prompt: outfit.prompt, referenceImage: ref, busyKey: key });
+    if (url) setAssetImages((m) => ({ ...m, [key]: url }));
+    return url;
+  }
+
+  // 顶部「生成图像」：先确保基准脸，再并发生成该角色全部造型。
+  async function generateAllOutfits(charName) {
+    const raw = assetItems[assetKey('characters', charName)];
+    if (!raw) { setNotice('请先生成该角色提示词，再出图。'); return; }
     const inst = imageInstance();
     if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个（或去右上角模型设置添加并填 Key）。'); return; }
-    const referenceImage = type === 'characters' ? (baseFaces[name] || '') : '';
-    setImgLoading(key); setNotice(referenceImage ? '正在以基准脸为参考出图（锁脸），可能 20-60 秒…' : '正在生成图像，可能 20-60 秒…');
-    try {
-      const data = await runJob(`${API}/generate-image`, { prompt: String(prompt).slice(0, 4000), image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }, referenceImage });
-      if (data.error || !data.url) throw new Error(data.error || '图像生成失败');
-      setAssetImages((m) => ({ ...m, [key]: data.url }));
-      setNotice(referenceImage ? '图像已生成（已锁基准脸）。' : (type === 'characters' ? '图像已生成。建议先「生成基准脸」再出造型，脸更稳。' : '图像已生成。'));
-    } catch (error) { setNotice(error.message); } finally { setImgLoading(''); }
+    const { outfits } = parseCharacterOutfits(raw);
+    if (!baseFaces[charName]) { setNotice('先生成基准脸，再并发出各造型…'); const b = await generateBaseFace(charName); if (!b) return; }
+    setNotice(`正在并发生成 ${outfits.length} 个造型（以基准脸锁脸），可能 30-90 秒…`);
+    await Promise.all(outfits.map((o) => generateOutfitImage(charName, o)));
+    setNotice('该角色全部造型已生成。');
+  }
+
+  // 场景 / 道具：单图，无需锁脸。
+  async function generateSceneProp(type, name) {
+    const prompt = assetItems[assetKey(type, name)];
+    if (!prompt) { setNotice('请先生成该资产的提示词，再出图。'); return; }
+    const key = imgKey(type, name, '默认');
+    setNotice('正在生成图像，可能 20-60 秒…');
+    const url = await runImageJob({ prompt, busyKey: key });
+    if (url) { setAssetImages((m) => ({ ...m, [key]: url })); setNotice('图像已生成。'); }
   }
 
   // 用捏脸法出该角色 1:1 基准大头照，作为后续造型的锁脸参考。
   async function generateBaseFace(name) {
-    const key = assetKey('characters', name);
-    const raw = assetItems[key];
-    if (!raw) { setNotice('请先生成该角色提示词（得到面部锚点）再生成基准脸。'); return; }
-    const inst = imageInstance();
-    if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个。'); return; }
+    const raw = assetItems[assetKey('characters', name)];
+    if (!raw) { setNotice('请先生成该角色提示词（得到面部锚点）再生成基准脸。'); return null; }
     const anchor = parseCharacterOutfits(raw).anchor || raw;
     const prompt = `原创角色 1:1 胸像特写定妆照，灰色影棚背景，高级商业摄影质感，真人写实风格，只拍头部、肩颈到胸口上方，人物面部占画面主要面积，肩颈自然入镜，不拍到腰部以下。面部设定：${String(anchor).slice(0, 1600)}。表情自然、安静、克制，不夸张、不刻意微笑。明亮通透影棚光，轻微伦勃朗阴影展现骨相结构。真实皮肤纹理、毛孔自然、发丝清晰、五官自然协调、面部结构稳定。不参考任何真实人物、明星、网红或影视角色。负面：明星脸，网红脸，撞脸，塑料皮肤，AI假脸，锥子脸，脸部变形，多人同框，全身照，背景杂乱。`;
-    setImgLoading(`base|${name}`); setNotice('正在生成基准脸（1:1 定妆照），可能 20-60 秒…');
+    setNotice('正在生成基准脸（1:1 定妆照），可能 20-60 秒…');
+    const url = await runImageJob({ prompt, size: '1024x1024', busyKey: `base|${name}` });
+    if (url) { setBaseFaces((m) => ({ ...m, [name]: url })); setNotice('基准脸已生成。后续该角色造型出图会以它为参考锁脸。'); }
+    return url;
+  }
+
+  // 单张下载：data: 直接下；http(s) 走后端代理带文件名。命名 人物_造型。
+  function downloadImage(url, filename) {
+    if (!url) return;
+    const a = document.createElement('a');
+    if (String(url).startsWith('data:')) { a.href = url; a.download = `${filename}.png`; }
+    else { const q = new URLSearchParams({ url, name: filename }); a.href = `${API}/download-image?${q.toString()}`; }
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // 打包下载：收集当前项目已生成的所有图（角色各造型 + 场景 + 道具），后端打成 ZIP。
+  async function downloadAllAssets() {
+    const items = [];
+    Object.entries(assetImages).forEach(([k, url]) => {
+      if (!url) return;
+      const [type, name, outfit] = k.split('|');
+      if (type === 'characters') items.push({ group: 'characters', character: name, outfit: outfit || '默认', url });
+      else items.push({ group: type, name, url });
+    });
+    // 基准脸也一并打入对应人物文件夹
+    Object.entries(baseFaces).forEach(([name, url]) => { if (url) items.push({ group: 'characters', character: name, outfit: '基准脸', url }); });
+    if (!items.length) { setNotice('还没有已生成的图片可打包。先出几张图再下载。'); return; }
+    setZipBusy(true); setNotice(`正在打包 ${items.length} 张图片…`);
     try {
-      const data = await runJob(`${API}/generate-image`, { prompt, image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }, size: '1024x1024' });
-      if (data.error || !data.url) throw new Error(data.error || '基准脸生成失败');
-      setBaseFaces((m) => ({ ...m, [name]: data.url }));
-      setNotice('基准脸已生成。后续该角色造型出图会以它为参考锁脸。');
-    } catch (error) { setNotice(error.message); } finally { setImgLoading(''); }
+      const res = await fetch(`${API}/download-assets`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, zipName: `${project?.title || '项目'}_资产图片` }) });
+      if (!res.ok) throw new Error('打包失败');
+      const blob = await res.blob();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${project?.title || '项目'}_资产图片.zip`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+      setNotice('打包完成，已开始下载。');
+    } catch (error) { setNotice(error.message); } finally { setZipBusy(false); }
   }
 
   async function generateAssets() {
@@ -1233,6 +1296,9 @@ function App() {
               <button className="secondary" onClick={() => copyText(assetExportMarkdown(), '已复制全部已生成资产提示词。')} disabled={!assetGenCount}><Copy size={15} />复制全部</button>
               <button className="secondary" onClick={() => exportDoc('docx', '美术资产提示词', assetExportMarkdown())} disabled={!assetGenCount}><Download size={15} />Word</button>
               <button className="secondary" onClick={() => exportDoc('txt', '美术资产提示词', assetExportMarkdown())} disabled={!assetGenCount}><Download size={15} />TXT</button>
+              <button className="secondary" onClick={downloadAllAssets} disabled={zipBusy || (Object.values(assetImages).filter(Boolean).length + Object.values(baseFaces).filter(Boolean).length) === 0} title="按 角色/场景/道具 打包下载全部已生成图片">
+                {zipBusy ? <RefreshCw className="spin" size={15} /> : <Download size={15} />}打包下载图片
+              </button>
             </div>
           </div>
 
@@ -1286,11 +1352,11 @@ function App() {
                       <h3>{assetView.name}{isChar && raw ? <em className="outfit-count"> · {parsed.outfits.length} 个造型</em> : null}</h3>
                       <div className="actions">
                         {raw && <button className="secondary" onClick={() => copyText(raw, '已复制该资产全部提示词。')}><Copy size={14} />复制全部</button>}
-                        {raw && isChar && <button className="secondary" onClick={() => generateBaseFace(assetView.name)} disabled={imgLoading === `base|${assetView.name}`} title="先出 1:1 基准大头照，后续造型以它锁脸">
-                          {imgLoading === `base|${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Users size={14} />}{baseFaces[assetView.name] ? '重出基准脸' : '生成基准脸'}
+                        {raw && isChar && <button className="secondary" onClick={() => generateBaseFace(assetView.name)} disabled={isImgBusy(`base|${assetView.name}`)} title="先出 1:1 基准大头照，后续造型以它锁脸">
+                          {isImgBusy(`base|${assetView.name}`) ? <RefreshCw className="spin" size={14} /> : <Users size={14} />}{baseFaces[assetView.name] ? '重出基准脸' : '生成基准脸'}
                         </button>}
-                        {raw && <button className="secondary" onClick={() => generateAssetImage(assetView.type, assetView.name)} disabled={imgLoading === assetKey(assetView.type, assetView.name)}>
-                          {imgLoading === assetKey(assetView.type, assetView.name) ? <RefreshCw className="spin" size={14} /> : <Play size={14} />}生成图像
+                        {raw && <button className="secondary" onClick={() => isChar ? generateAllOutfits(assetView.name) : generateSceneProp(assetView.type, assetView.name)}>
+                          <Play size={14} />{isChar ? '生成全部造型' : '生成图像'}
                         </button>}
                         <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
                           {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
@@ -1299,20 +1365,15 @@ function App() {
                       </div>
                     </div>
 
-                    {isChar && (baseFaces[assetView.name] || imgLoading === `base|${assetView.name}`) && (
+                    {isChar && (baseFaces[assetView.name] || isImgBusy(`base|${assetView.name}`)) && (
                       <div className="base-face">
                         <div className="base-face-tag">基准脸 · 锁脸参考（后续造型出图以此为准）</div>
-                        {imgLoading === `base|${assetView.name}`
-                          ? <div className="asset-image-loading"><RefreshCw className="spin" size={22} /><span>正在生成基准脸…</span></div>
-                          : <a href={baseFaces[assetView.name]} target="_blank" rel="noopener"><img src={baseFaces[assetView.name]} alt={`${assetView.name} 基准脸`} /></a>}
-                      </div>
-                    )}
-
-                    {(assetImages[assetKey(assetView.type, assetView.name)] || imgLoading === assetKey(assetView.type, assetView.name)) && (
-                      <div className="asset-image">
-                        {imgLoading === assetKey(assetView.type, assetView.name)
-                          ? <div className="asset-image-loading"><RefreshCw className="spin" size={22} /><span>正在生成图像…</span></div>
-                          : <a href={assetImages[assetKey(assetView.type, assetView.name)]} target="_blank" rel="noopener"><img src={assetImages[assetKey(assetView.type, assetView.name)]} alt={assetView.name} /></a>}
+                        {isImgBusy(`base|${assetView.name}`)
+                          ? <div className="thumb loading"><RefreshCw className="spin" size={20} /></div>
+                          : <div className="thumb" onClick={() => setLightbox({ url: baseFaces[assetView.name], name: `${assetView.name}_基准脸` })}>
+                              <img src={baseFaces[assetView.name]} alt={`${assetView.name} 基准脸`} />
+                              <button className="thumb-dl" title="下载" onClick={(e) => { e.stopPropagation(); downloadImage(baseFaces[assetView.name], `${assetView.name}_基准脸`); }}><Download size={13} /></button>
+                            </div>}
                       </div>
                     )}
 
@@ -1326,15 +1387,37 @@ function App() {
                             <pre className="markdown-view">{parsed.anchor}</pre>
                           </div>
                         )}
-                        {parsed.outfits.map((o, i) => (
+                        {parsed.outfits.map((o, i) => {
+                          const oKey = imgKey('characters', assetView.name, o.name);
+                          const oUrl = assetImages[oKey];
+                          const oBusy = isImgBusy(oKey);
+                          const fname = `${assetView.name}_${o.name}`;
+                          return (
                           <div key={i} className="outfit-block">
                             <div className="outfit-block-head">
                               <span className="outfit-name">{o.name}</span>
-                              <button className="secondary" onClick={() => copyText(o.prompt, '已复制该造型提示词。')}><Copy size={13} />复制</button>
+                              <div className="outfit-actions">
+                                <button className="secondary" onClick={() => copyText(o.prompt, '已复制该造型提示词。')}><Copy size={13} />复制</button>
+                                <button className="secondary" onClick={() => generateOutfitImage(assetView.name, o)} disabled={oBusy} title="以基准脸锁脸出该造型">
+                                  {oBusy ? <RefreshCw className="spin" size={13} /> : <Play size={13} />}{oUrl ? '重出' : '生成'}
+                                </button>
+                                {oUrl && <button className="secondary" onClick={() => downloadImage(oUrl, fname)}><Download size={13} />下载</button>}
+                              </div>
                             </div>
+                            {(oUrl || oBusy) && (
+                              <div className="outfit-thumb-row">
+                                {oBusy
+                                  ? <div className="thumb loading"><RefreshCw className="spin" size={18} /></div>
+                                  : <div className="thumb" onClick={() => setLightbox({ url: oUrl, name: fname })}>
+                                      <img src={oUrl} alt={fname} />
+                                      <button className="thumb-dl" title="下载" onClick={(e) => { e.stopPropagation(); downloadImage(oUrl, fname); }}><Download size={13} /></button>
+                                    </div>}
+                              </div>
+                            )}
                             <pre className="markdown-view">{o.prompt}</pre>
                           </div>
-                        ))}
+                          );
+                        })}
                         <div className="add-outfit">
                           <input value={outfitInput} placeholder="添加造型：描述服饰/发型，如 红色礼服+束发"
                             onChange={(e) => setOutfitInput(e.target.value)}
@@ -1346,7 +1429,27 @@ function App() {
                       </div>
                     )}
 
-                    {raw && !isChar && <pre className="markdown-view">{raw}</pre>}
+                    {raw && !isChar && (() => {
+                      const spKey = imgKey(assetView.type, assetView.name, '默认');
+                      const spUrl = assetImages[spKey];
+                      const spBusy = isImgBusy(spKey);
+                      const fname = assetView.name;
+                      return (
+                        <>
+                          {(spUrl || spBusy) && (
+                            <div className="outfit-thumb-row">
+                              {spBusy
+                                ? <div className="thumb loading"><RefreshCw className="spin" size={18} /></div>
+                                : <div className="thumb" onClick={() => setLightbox({ url: spUrl, name: fname })}>
+                                    <img src={spUrl} alt={fname} />
+                                    <button className="thumb-dl" title="下载" onClick={(e) => { e.stopPropagation(); downloadImage(spUrl, fname); }}><Download size={13} /></button>
+                                  </div>}
+                            </div>
+                          )}
+                          <pre className="markdown-view">{raw}</pre>
+                        </>
+                      );
+                    })()}
                   </>
                 );
               })() : <div className="empty-state">点击左侧资产卡片，查看或生成它的文生图提示词。</div>}
@@ -1462,6 +1565,19 @@ function App() {
       })()}
 
       {notice && <div className="toast">{notice}</div>}
+
+      {lightbox && (
+        <div className="lightbox" onClick={() => setLightbox(null)}>
+          <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <img src={lightbox.url} alt={lightbox.name} />
+            <div className="lightbox-bar">
+              <span className="lightbox-name">{lightbox.name}</span>
+              <button className="secondary" onClick={() => downloadImage(lightbox.url, lightbox.name)}><Download size={14} />下载</button>
+              <button className="secondary" onClick={() => setLightbox(null)}><X size={14} />关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </main>
   );
