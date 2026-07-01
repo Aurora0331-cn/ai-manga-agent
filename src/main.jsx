@@ -65,6 +65,10 @@ const STYLE_PROMPTS = {
 };
 const STYLE_OPTIONS = Object.keys(STYLE_PROMPTS);
 
+// 资产：角色审美（面孔族裔）与 世界观架构（年代背景）——均含「自定义」
+const CHARACTER_LOOKS = ['东方面孔', '西方面孔', '混血面孔', '中性 / 不限', '自定义'];
+const WORLDVIEWS = ['现代都市', '古代古装', '民国年代', '未来科幻', '武侠仙侠', '西方奇幻', '校园青春', '末世废土', '自定义'];
+
 // ===== 模型设置：预设供应商 + 模型（尽量复刻参考产品的分组） =====
 const MODEL_PRESETS = {
   llm: [
@@ -200,6 +204,13 @@ function App() {
   const [newAssetName, setNewAssetName] = useState(''); // 手动添加资产输入
   const [outfitInput, setOutfitInput] = useState(''); // 添加造型描述输入
   const [styleTone, setStyleTone] = useState(''); // 参考风格基调（仅用于场景）
+  const [characterLook, setCharacterLook] = useState('东方面孔');
+  const [characterLookCustom, setCharacterLookCustom] = useState('');
+  const [worldview, setWorldview] = useState('现代都市');
+  const [worldviewCustom, setWorldviewCustom] = useState('');
+  const [assetImages, setAssetImages] = useState({}); // assetKey -> 图像 URL
+  const [imgLoading, setImgLoading] = useState('');   // 正在出图的 assetKey
+  const [showAgePanel, setShowAgePanel] = useState(false);
 
   // 剧集提示词
   const [selectedIds, setSelectedIds] = useState([]);
@@ -411,8 +422,26 @@ function App() {
   }
 
   async function callAssetGen(assets) {
+    const cl = characterLook === '自定义' ? characterLookCustom : characterLook;
+    const wv = worldview === '自定义' ? worldviewCustom : worldview;
     return runJob(`${API}/projects/${project.id}/assets/generate`,
-      { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone });
+      { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone, characterLook: cl, worldview: wv });
+  }
+
+  async function generateAssetImage(type, name) {
+    const key = assetKey(type, name);
+    const prompt = assetItems[key];
+    if (!prompt) { setNotice('请先生成该资产的提示词，再出图。'); return; }
+    const inst = (modelStore.image || []).find((i) => i.name === project?.models?.image);
+    if (!inst || !inst.apiKey) { setNotice('未选到可用的图像模型实例。请在左栏「图像模型」选一个（或去右上角模型设置添加并填 Key）。'); return; }
+    setImgLoading(key); setNotice('正在生成图像，可能需要 10-60 秒…');
+    try {
+      const res = await fetch(`${API}/generate-image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: String(prompt).slice(0, 4000), image: { baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model } }) });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || '图像生成失败');
+      setAssetImages((m) => ({ ...m, [key]: data.url }));
+      setNotice('图像已生成。');
+    } catch (error) { setNotice(error.message); } finally { setImgLoading(''); }
   }
 
   async function generateAssets() {
@@ -1111,24 +1140,38 @@ function App() {
               <button className="primary" onClick={() => { setAssetsConfirmed(true); setStep(3); }} disabled={!assetGenCount} title={!assetGenCount ? '请至少生成一项资产提示词' : ''}>确认资产无误，进入分镜提示词 →</button>
             </div>
           </div>
-          <div className="modal-settings">
-            <SelectField label="美术资产 SKILL" value={assetSkillId}
-              options={assetSkillOptions.map((t) => t.id)}
-              optionLabels={Object.fromEntries(assetSkillOptions.map((t) => [t.id, t.name]))}
-              onChange={setAssetSkillId} />
-            <div className="field">
-              <span>上传美术资产 SKILL</span>
+          <div className="asset-config">
+            <label className="field"><span>视觉风格</span>
+              <select value={settings.visualStyle} onChange={(e) => setSettings({ ...settings, visualStyle: e.target.value })}>
+                {STYLE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="field"><span>角色审美 · 面孔</span>
+              <select value={characterLook} onChange={(e) => setCharacterLook(e.target.value)}>
+                {CHARACTER_LOOKS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {characterLook === '自定义' && <input className="cfg-custom" value={characterLookCustom} placeholder="自定义面孔，如 东南亚面孔" onChange={(e) => setCharacterLookCustom(e.target.value)} />}
+            </label>
+            <label className="field"><span>世界观架构 · 年代</span>
+              <select value={worldview} onChange={(e) => setWorldview(e.target.value)}>
+                {WORLDVIEWS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {worldview === '自定义' && <input className="cfg-custom" value={worldviewCustom} placeholder="自定义世界观/年代，如 赛博2099" onChange={(e) => setWorldviewCustom(e.target.value)} />}
+            </label>
+            <label className="field"><span>参考风格基调（选填）</span>
+              <input value={styleTone} placeholder="如：现实主义悬疑，低饱和冷暖对比" onChange={(e) => setStyleTone(e.target.value)} />
+            </label>
+            <label className="field"><span>美术资产 SKILL</span>
+              <select value={assetSkillId} onChange={(e) => setAssetSkillId(e.target.value)}>
+                {assetSkillOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+            <div className="field"><span>上传 SKILL（可选）</span>
               <label className="secondary skill-upload-btn">
                 <Upload size={15} />{loading === 'skill-upload' ? '上传中…' : '上传 .txt / .md'}
                 <input type="file" accept=".txt,.md" onChange={uploadSkillTemplate} />
               </label>
             </div>
-            <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
-            <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
-            <label className="field">
-              <span>参考风格基调（选填·仅用于场景）</span>
-              <input value={styleTone} placeholder="如：现实主义悬疑，低饱和冷暖对比" onChange={(e) => setStyleTone(e.target.value)} />
-            </label>
           </div>
 
           <div className="asset-tabs">
@@ -1173,18 +1216,21 @@ function App() {
 
           {assetCat === 'characters' && bibleNames('characters').length > 0 && (
             <div className="age-confirm">
-              <div className="age-confirm-head">
-                <span>人物出镜年龄确认</span>
-                <em>短剧出镜年龄常≠剧本年龄；填写后角色提示词将采用此年龄（留空则由模型按剧本判断）</em>
-              </div>
-              <div className="age-grid">
-                {bibleNames('characters').map((name) => (
-                  <label key={name} className="age-item">
-                    <span>{name}</span>
-                    <input value={assetAges[name] || ''} placeholder="出镜年龄 如 26 / 25-30" onChange={(e) => setAssetAges({ ...assetAges, [name]: e.target.value })} />
-                  </label>
-                ))}
-              </div>
+              <button type="button" className="age-confirm-head" onClick={() => setShowAgePanel((v) => !v)}>
+                <span className="age-caret">{showAgePanel ? '▾' : '▸'}</span>
+                <strong>人物出镜年龄确认</strong>
+                <em>出镜年龄常≠剧本年龄；填写按此年龄，留空由模型判断</em>
+              </button>
+              {showAgePanel && (
+                <div className="age-grid">
+                  {bibleNames('characters').map((name) => (
+                    <label key={name} className="age-item">
+                      <span>{name}</span>
+                      <input value={assetAges[name] || ''} placeholder="出镜年龄 如 26 / 25-30" onChange={(e) => setAssetAges({ ...assetAges, [name]: e.target.value })} />
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1218,6 +1264,9 @@ function App() {
                       <h3>{assetView.name}{isChar && raw ? <em className="outfit-count"> · {parsed.outfits.length} 个造型</em> : null}</h3>
                       <div className="actions">
                         {raw && <button className="secondary" onClick={() => copyText(raw, '已复制该资产全部提示词。')}><Copy size={14} />复制全部</button>}
+                        {raw && <button className="secondary" onClick={() => generateAssetImage(assetView.type, assetView.name)} disabled={imgLoading === assetKey(assetView.type, assetView.name)}>
+                          {imgLoading === assetKey(assetView.type, assetView.name) ? <RefreshCw className="spin" size={14} /> : <Play size={14} />}生成图像
+                        </button>}
                         <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
                           {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
                           {raw ? '重新生成' : '生成此项'}
@@ -1225,7 +1274,15 @@ function App() {
                       </div>
                     </div>
 
-                    {!raw && <div className="empty-state">该资产尚未生成。点「生成此项」单独生成，或在上方「生成选中」批量生成。</div>}
+                    {(assetImages[assetKey(assetView.type, assetView.name)] || imgLoading === assetKey(assetView.type, assetView.name)) && (
+                      <div className="asset-image">
+                        {imgLoading === assetKey(assetView.type, assetView.name)
+                          ? <div className="asset-image-loading"><RefreshCw className="spin" size={22} /><span>正在生成图像…</span></div>
+                          : <a href={assetImages[assetKey(assetView.type, assetView.name)]} target="_blank" rel="noopener"><img src={assetImages[assetKey(assetView.type, assetView.name)]} alt={assetView.name} /></a>}
+                      </div>
+                    )}
+
+                    {!raw && <div className="empty-state">该资产尚未生成。点「生成此项」出提示词，再点「生成图像」用你配的图像模型出图；也可在上方「生成选中」批量生成提示词。</div>}
 
                     {raw && isChar && (
                       <div className="outfit-list">
