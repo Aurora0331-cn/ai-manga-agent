@@ -9,6 +9,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
+import { fetch as undiciFetch, Agent as UndiciAgent } from 'undici';
+
+// 关键修复：Node 内置 fetch（undici）默认 headersTimeout=300 秒——上游 300 秒内没返回响应头就直接断连，
+// 报 "fetch failed"。gpt-5.5 出长剧本可达 300 秒以上，会被这个隐藏限制提前掐断（AbortController 的 600s 排在它后面，永远轮不到）。
+// 这里改用带长超时 Agent 的 undici fetch 发起 LLM/图像请求；真正的超时仍由各调用处 AbortController 控制。
+const LONG_TIMEOUT_MS = (Number(process.env.LLM_TIMEOUT_MS) || 600000) + 30000;
+const longFetchAgent = new UndiciAgent({ connectTimeout: 30000, headersTimeout: LONG_TIMEOUT_MS, bodyTimeout: LONG_TIMEOUT_MS });
+const longFetch = (url, init = {}) => undiciFetch(url, { ...init, dispatcher: longFetchAgent });
+// 网络层错误（fetch failed）把底层 cause 带出来，否则日志里只看到 fetch failed 无从排查。
+const withCause = (error) => `${error.message}${error.cause ? `（${error.cause.code || error.cause.message || error.cause}）` : ''}`;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1018,7 +1028,7 @@ async function chatCompletion(config, payload, { retriedWithoutJsonMode = false 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetch(`${config.baseUrl}/chat/completions`, {
+    response = await longFetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
       body: JSON.stringify(payload),
@@ -1026,7 +1036,7 @@ async function chatCompletion(config, payload, { retriedWithoutJsonMode = false 
     });
   } catch (error) {
     if (error.name === 'AbortError') throw new Error(`LLM request timed out after ${timeoutMs}ms`);
-    throw error;
+    throw new Error(withCause(error));
   } finally {
     clearTimeout(timer);
   }
@@ -1675,7 +1685,7 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props} 与 markdown，不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
@@ -1702,13 +1712,58 @@ ${skill.slice(0, 24000)}`
     scenes: asStr(rawMods.scenes),
     props: asStr(rawMods.props)
   };
-  const markdown = String(parsed.markdown || content || composeAssetMarkdown(modules));
+  const markdown = String(parsed.markdown || ((modules.characters || modules.scenes || modules.props) ? composeAssetMarkdown(modules) : content));
   // 兜底：模型没按 JSON 的 modules 返回（只给了 markdown/纯文本）时，从 markdown 文本重建分段，
   // 否则前端按 modules 抽取会全空、看不到内容。
   if (!modules.characters && !modules.scenes && !modules.props && markdown) {
     modules = extractAssetModulesFromMarkdown(markdown);
   }
   return { mode: 'llm', provider: config.providerName, model: config.model, modules, markdown };
+}
+
+// 分批生成资产提示词：一次塞几十个资产会超时/超 max_tokens，整体失败后全部静默降级为本地模板（表现为
+// 每个资产只有通用句式）。这里按类别切小批（角色 3 / 场景 6 / 道具 8），最多 3 路并发；哪批失败只对那批兜底。
+const ASSET_BATCH_SIZES = { characters: 3, scenes: 6, props: 8 };
+async function callAssetLLMChunked(args) {
+  const { assets } = args;
+  const chunks = [];
+  for (const type of ['characters', 'scenes', 'props']) {
+    const names = Array.isArray(assets[type]) ? assets[type] : [];
+    for (let i = 0; i < names.length; i += ASSET_BATCH_SIZES[type]) {
+      chunks.push({ type, names: names.slice(i, i + ASSET_BATCH_SIZES[type]) });
+    }
+  }
+  const parts = { characters: [], scenes: [], props: [] };
+  const failed = [];
+  let firstError = null;
+  let cursor = 0;
+  async function worker() {
+    for (;;) {
+      const i = cursor++;
+      if (i >= chunks.length) return;
+      const chunk = chunks[i];
+      const subAssets = { characters: [], scenes: [], props: [], [chunk.type]: chunk.names };
+      try {
+        const out = await callAssetLLM({ ...args, assets: subAssets });
+        const text = String(out?.modules?.[chunk.type] || '').trim();
+        if (!text) throw new Error('模型返回空内容');
+        parts[chunk.type][i] = text; // 用全局批次序号占位，保持原始顺序
+      } catch (error) {
+        if (!firstError) firstError = error;
+        console.warn(`Asset chunk failed (${chunk.type}: ${chunk.names.join('、')}): ${error.message}`);
+        failed.push(...chunk.names);
+        const fb = fallbackAssetPrompts({ project: args.project, assets: subAssets, settings: args.settings, ages: args.ages, styleTone: args.styleTone });
+        parts[chunk.type][i] = fb.modules[chunk.type];
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, Math.max(chunks.length, 1)) }, worker));
+  const modules = {
+    characters: parts.characters.filter(Boolean).join('\n\n'),
+    scenes: parts.scenes.filter(Boolean).join('\n\n'),
+    props: parts.props.filter(Boolean).join('\n\n')
+  };
+  return { modules, failed, firstError, chunkCount: chunks.length };
 }
 
 // 剧本构建工坊：按所选 SKILL（生成/小说转/优化）产出完整剧本正文（纯 Markdown）。
@@ -2002,11 +2057,21 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
         message: `未填写 ${llmConfig.providerName} 的 API Key。请在 LLM 设置面板填写后再生成，或先查看本地兜底结果。`
       };
       let output = null;
-      try {
-        output = await callAssetLLM({ skill: skill.content, project, assets, settings, llm, ages, styleTone, characterLook, worldview });
-      } catch (error) {
-        if (!llmError) llmError = parseLlmError(error.message);
-        console.warn(`Asset LLM fell back: ${error.message}`);
+      if (!llmError) {
+        try {
+          const { modules, failed, firstError } = await callAssetLLMChunked({ skill: skill.content, project, assets, settings, llm, ages, styleTone, characterLook, worldview });
+          if (failed.length >= total) throw (firstError || new Error('模型未返回可用内容'));
+          output = { mode: 'llm', modules, markdown: composeAssetMarkdown(modules) };
+          if (failed.length && firstError) {
+            llmError = {
+              code: 'partial_fallback',
+              message: `${failed.length}/${total} 个资产模型调用失败（${parseLlmError(firstError.message).message || firstError.message}），已用本地模板兜底：${failed.join('、')}。可对这些资产单独点「重新生成」。`
+            };
+          }
+        } catch (error) {
+          llmError = parseLlmError(error.message);
+          console.warn(`Asset LLM fell back: ${error.message}`);
+        }
       }
       if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings, ages, styleTone }); }
       output.items = buildAssetItems(assets, output.modules);
@@ -2115,11 +2180,11 @@ app.post('/api/generate-image', async (req, res, next) => {
           form.append('prompt', String(prompt).slice(0, 4000));
           form.append('n', '1');
           form.append('size', size);
-          r = await fetch(`${baseUrl}/images/edits`, {
+          r = await longFetch(`${baseUrl}/images/edits`, {
             method: 'POST', headers: { Authorization: `Bearer ${image.apiKey}` }, body: form, signal: controller.signal
           });
         } else {
-          r = await fetch(`${baseUrl}/images/generations`, {
+          r = await longFetch(`${baseUrl}/images/generations`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${image.apiKey}` },
             body: JSON.stringify({ model: image.model, prompt: String(prompt).slice(0, 4000), n: 1, size }), signal: controller.signal
           });
@@ -2131,7 +2196,7 @@ app.post('/api/generate-image', async (req, res, next) => {
         if (!url) { finishJob(jobId, { error: '图像生成返回为空（该模型可能不兼容该接口，可换一个图像模型实例）。' }); return; }
         finishJob(jobId, { url });
       } catch (error) {
-        finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : error.message });
+        finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : withCause(error) });
       } finally { clearTimeout(timer); }
     })().catch((error) => failJob(jobId, { message: error.message }));
   } catch (error) { next(error); }
