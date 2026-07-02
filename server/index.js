@@ -1711,7 +1711,23 @@ ${skill.slice(0, 24000)}`
       },
       {
         role: 'user',
-        content: JSON.stringify({ task: '仅为下列被选中的美术资产生成文生图提示词', selectedAssets: assets, settings, confirmedAges: ages, styleTone, characterLook, worldview, globalBible: project.bible })
+        // 只发本批资产相关的 bible 条目 + 剧情摘要：全量 bible 每批要重复 4 万+ token 输入，
+        // 既慢（首字等待长）又贵；摘要足够支撑角色多造型推导。
+        content: JSON.stringify({
+          task: '仅为下列被选中的美术资产生成文生图提示词',
+          selectedAssets: assets,
+          settings,
+          confirmedAges: ages,
+          styleTone,
+          characterLook,
+          worldview,
+          globalBible: {
+            characters: (project.bible?.characters || []).filter((c) => (assets.characters || []).includes(c.name)),
+            scenes: (project.bible?.scenes || []).filter((s) => (assets.scenes || []).includes(s.name)),
+            props: (project.bible?.props || []).filter((p) => (assets.props || []).includes(p.name)),
+            episodeContinuity: (project.bible?.episodeContinuity || []).map((e) => ({ title: e.title, summary: e.summary }))
+          }
+        })
       }
     ],
     temperature: config.temperature,
@@ -1757,7 +1773,8 @@ ${skill.slice(0, 24000)}`
 
 // 分批生成资产提示词：一次塞几十个资产会超时/超 max_tokens，整体失败后全部静默降级为本地模板（表现为
 // 每个资产只有通用句式）。这里按类别切小批（角色 3 / 场景 6 / 道具 8），最多 3 路并发；哪批失败只对那批兜底。
-const ASSET_BATCH_SIZES = { characters: 3, scenes: 6, props: 8 };
+const ASSET_BATCH_SIZES = { characters: 3, scenes: 8, props: 12 };
+const ASSET_CHUNK_CONCURRENCY = Number(process.env.ASSET_CHUNK_CONCURRENCY) || 6;
 async function callAssetLLMChunked(args) {
   const { assets } = args;
   const chunks = [];
@@ -1807,7 +1824,7 @@ async function callAssetLLMChunked(args) {
       if (typeof onProgress === 'function') { try { onProgress(completed, chunks.length); } catch { /* ignore */ } }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(3, Math.max(chunks.length, 1)) }, worker));
+  await Promise.all(Array.from({ length: Math.min(ASSET_CHUNK_CONCURRENCY, Math.max(chunks.length, 1)) }, worker));
   const modules = {
     characters: parts.characters.filter(Boolean).join('\n\n'),
     scenes: parts.scenes.filter(Boolean).join('\n\n'),
