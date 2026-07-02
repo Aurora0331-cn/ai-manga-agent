@@ -1389,7 +1389,7 @@ app.patch('/api/projects/:id', async (req, res, next) => {
   try {
     const p = projects.get(req.params.id);
     if (!p) return res.status(404).json({ error: '项目不存在。' });
-    const allow = ['title', 'aspectRatio', 'collaboration', 'status', 'category', 'style', 'stylePrompt', 'models'];
+    const allow = ['title', 'aspectRatio', 'collaboration', 'status', 'category', 'style', 'stylePrompt', 'models', 'assetItems'];
     for (const k of allow) if (k in req.body) p[k] = req.body[k];
     if ('title' in req.body) p.name = p.title;
     if ('style' in req.body && !('stylePrompt' in req.body)) p.stylePrompt = projectStylePrompt(p.style);
