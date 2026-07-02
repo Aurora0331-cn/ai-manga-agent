@@ -483,23 +483,24 @@ function App() {
   function updateAssetPrompt(type, name, value) {
     setAssetItems((m) => ({ ...m, [assetKey(type, name)]: value }));
   }
-  // 角色的锚点/单个造型编辑：重组回 ### @名 + #### @造型 的原始结构
-  function updateCharacterPart(name, patch) {
-    const key = assetKey('characters', name);
+  // 锚点/单个子状态编辑：重组回「锚点 + #### @子状态」的原始结构（角色造型与场景日夜状态通用）
+  function updateAssetPart(type, name, patch) {
+    const key = assetKey(type, name);
     setAssetItems((m) => {
       const raw0 = m[key] || '';
       if (!/(^|\n)#{3,4}\s/.test(raw0)) {
-        // 无子标题结构：整段即唯一造型，直接替换
+        // 无子标题结构：整段即唯一状态，直接替换
         return { ...m, [key]: patch.prompt !== undefined ? patch.prompt : raw0 };
       }
       const parsed = parseCharacterOutfits(raw0);
       const anchor = patch.anchor !== undefined ? patch.anchor : parsed.anchor;
       const outfits = parsed.outfits.map((o, i) => (patch.outfitIndex === i ? { ...o, prompt: patch.prompt } : o));
-      // 注意：存储的角色提示词不含「### @名」标题行（拆分时已剥掉），重组时保持同样结构
+      // 注意：存储的提示词不含「### @名」标题行（拆分时已剥掉），重组时保持同样结构
       const raw = `${anchor ? `${anchor}\n\n` : ''}${outfits.map((o) => `#### @${o.name}\n${o.prompt}`).join('\n\n')}`;
       return { ...m, [key]: raw };
     });
   }
+  function updateCharacterPart(name, patch) { updateAssetPart('characters', name, patch); }
 
   async function callAssetGen(assets) {
     const cl = characterLook === '自定义' ? characterLookCustom : characterLook;
@@ -556,6 +557,17 @@ function App() {
     setNotice('该角色全部造型已生成。');
   }
 
+  // 场景多状态出图：日间基准直接文生图；夜间等后续状态以日间图为参考（结构锁定）走 /images/edits。
+  async function generateSceneStateImage(name, state, refUrl) {
+    const key = imgKey('scenes', name, state.name);
+    const structlock = refUrl
+      ? '【结构锁定·最高优先级】空间结构、建筑与陈设布局、构图机位与参考图完全一致，一砖一瓦不得改变；仅按以下提示词改变时间、天气、光照与氛围：\n'
+      : '';
+    const url = await runImageJob({ prompt: `${structlock}${state.prompt}`, referenceImage: refUrl || '', size: '2048x1152', busyKey: key });
+    if (url) setAssetImages((m) => ({ ...m, [key]: url }));
+    return url;
+  }
+
   // 场景 / 道具：单图，无需锁脸。
   async function generateSceneProp(type, name) {
     const prompt = assetItems[assetKey(type, name)];
@@ -600,7 +612,8 @@ function App() {
       if (!url) return;
       const [type, name, outfit] = k.split('|');
       if (type === 'characters') items.push({ group: 'characters', character: name, outfit: outfit || '默认', url });
-      else items.push({ group: type, name, url });
+      // 场景日/夜等多状态：文件名带上状态名，避免同名互相覆盖
+      else items.push({ group: type, name: (outfit && outfit !== '默认') ? `${name}_${outfit}` : name, url });
     });
     // 基准脸也一并打入对应人物文件夹
     Object.entries(baseFaces).forEach(([name, url]) => { if (url) items.push({ group: 'characters', character: name, outfit: '基准脸', url }); });
@@ -1527,7 +1540,70 @@ function App() {
                       </div>
                     )}
 
-                    {raw && !isChar && (() => {
+                    {raw && !isChar && assetView.type === 'scenes' && /(^|\n)####\s/.test(raw) && (() => {
+                      // 场景多状态（日/夜等）：结构与角色多造型一致；第一个状态（日间基准）出图后，
+                      // 后续状态以它为参考图（结构锁定）出图。
+                      const sp = parseCharacterOutfits(raw);
+                      const baseState = sp.outfits[0];
+                      const baseImgUrl = baseState ? assetImages[imgKey('scenes', assetView.name, baseState.name)] : '';
+                      return (
+                        <div className="outfit-list">
+                          {sp.anchor && (
+                            <div className="outfit-anchor">
+                              <div className="outfit-anchor-tag">空间锚点（全状态固定 · 各时段共用同一空间结构 · 可直接编辑）</div>
+                              <textarea className="markdown-view" style={{ width: '100%', minHeight: 100, resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                                value={sp.anchor}
+                                onChange={(e) => updateAssetPart('scenes', assetView.name, { anchor: e.target.value })} />
+                            </div>
+                          )}
+                          {sp.outfits.map((o, i) => {
+                            const sKey = imgKey('scenes', assetView.name, o.name);
+                            const sUrl = assetImages[sKey];
+                            const sBusy = isImgBusy(sKey);
+                            const sName = `${assetView.name}_${o.name}`;
+                            return (
+                              <div key={i} className="outfit-block">
+                                <div className="outfit-block-head">
+                                  <span className="outfit-name">{o.name}{i === 0 ? '（基准）' : ''}</span>
+                                  <div className="outfit-actions">
+                                    <button className="secondary" onClick={() => copyText(o.prompt, '已复制该状态提示词。')}><Copy size={13} />复制</button>
+                                    <button className="secondary" disabled={sBusy} title={i === 0 ? '直接文生图' : '以基准态图为参考锁定空间结构出图'}
+                                      onClick={async () => {
+                                        if (i === 0) { await generateSceneStateImage(assetView.name, o, ''); return; }
+                                        let ref = baseImgUrl;
+                                        if (!ref && baseState) {
+                                          setNotice('先生成基准（日间）状态作为结构参考…');
+                                          ref = await generateSceneStateImage(assetView.name, baseState, '');
+                                          if (!ref) return;
+                                        }
+                                        await generateSceneStateImage(assetView.name, o, ref);
+                                      }}>
+                                      {sBusy ? <RefreshCw className="spin" size={13} /> : <Play size={13} />}{sUrl ? '重出' : '生成'}
+                                    </button>
+                                    {sUrl && <button className="secondary" onClick={() => downloadImage(sUrl, sName)}><Download size={13} />下载</button>}
+                                  </div>
+                                </div>
+                                {(sUrl || sBusy) && (
+                                  <div className="outfit-thumb-row">
+                                    {sBusy
+                                      ? <div className="thumb loading"><RefreshCw className="spin" size={18} /></div>
+                                      : <div className="thumb" onClick={() => setLightbox({ url: sUrl, name: sName })}>
+                                          <img src={sUrl} alt={sName} />
+                                          <button className="thumb-dl" title="下载" onClick={(e) => { e.stopPropagation(); downloadImage(sUrl, sName); }}><Download size={13} /></button>
+                                        </div>}
+                                  </div>
+                                )}
+                                <textarea className="markdown-view" style={{ width: '100%', minHeight: 130, resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                                  value={o.prompt}
+                                  onChange={(e) => updateAssetPart('scenes', assetView.name, { outfitIndex: i, prompt: e.target.value })} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    {raw && !isChar && !(assetView.type === 'scenes' && /(^|\n)####\s/.test(raw)) && (() => {
                       const spKey = imgKey(assetView.type, assetView.name, '默认');
                       const spUrl = assetImages[spKey];
                       const spBusy = isImgBusy(spKey);
