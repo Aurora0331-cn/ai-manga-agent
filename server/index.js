@@ -2383,8 +2383,16 @@ app.post('/api/generate-image', async (req, res, next) => {
         if (!r.ok) { const t = await r.text(); finishJob(jobId, { error: `图像生成失败：${t.slice(0, 400)}` }); return; }
         const data = await r.json();
         const item = (Array.isArray(data?.data) ? data.data[0] : data?.data) || {};
-        const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
-        if (!url) { finishJob(jobId, { error: '图像生成返回为空（该模型可能不兼容该接口，可换一个图像模型实例）。' }); return; }
+        let url = item.url || item.image_url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
+        // 兼容部分网关的非标准返回形态
+        if (!url && typeof data?.url === 'string') url = data.url;
+        if (!url && Array.isArray(data?.output) && typeof data.output[0] === 'string') url = data.output[0];
+        if (!url && Array.isArray(data?.images) && data.images[0]) url = data.images[0].url || data.images[0];
+        if (!url) {
+          console.warn(`Image gen empty/unknown response shape: ${JSON.stringify(data).slice(0, 600)}`);
+          finishJob(jobId, { error: '图像生成返回为空（该模型可能不兼容该接口，可换一个图像模型实例）。' });
+          return;
+        }
         finishJob(jobId, { url });
       } catch (error) {
         finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : withCause(error) });
