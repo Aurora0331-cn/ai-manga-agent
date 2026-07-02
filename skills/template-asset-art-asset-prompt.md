@@ -45,6 +45,68 @@ skill作者（抖音）：桐景谯
 
 ---
 
+## 风格包：3D国漫CG / 游戏原画（当视觉风格含"游戏原画 / 3D / 国漫 / CG / 游戏CG"时强制启用，优先级高于下方通用 GPT 适配规则）
+
+> 来源：《3D国漫CG影视美术指导》（极高颜值/工业管线对齐版）。启用本风格包时，第 16 条"避免 8K/超高清等词"的限制**不适用**——本风格包的质量词（8k UHD, octane render, clean render, denoised, raytraced shadows 等）必须保留；固定英文降噪尾缀（规则 19）仍照常附加。
+
+### 三大绝对红线
+1. **绝对无字**：严禁任何字母标注、标签、水印、指示线、UI 元素（素材直接进贴图管线）。
+2. **画幅锁**：角色与场景 16:9；道具 1:1（四宫格版式）。
+3. **电影级光影**：人像严禁平光；强制三点式控光（微侧主光 + 发丝边缘高光），鼻梁下颌产生精致微阴影。
+
+### 角色 · 极致神颜规范
+- **巅峰神颜与面部微雕**：骨相极致立体。女性：清冷、坚毅、孤傲的距离感；男性：冷酷、邪魅、似笑非笑的危险魅惑，下颌线如刀刻。
+- **SSS 皮肤物理锁**：强制 Subsurface Scattering——健康暖色血液底色、清透微醺双颊、饱满晶莹唇光；平滑降噪去颗粒。
+- **正常眸色物理锁**：自然深褐/黑色瞳孔，无发光、无异色（保证后期眼部绑定可驱动）。
+- **定妆态锁定**：默认造型一律为"完美无瑕、妆容精致的无损伤定妆照"（零伤口/血迹/污渍）；战损等即时状态只在剧本明确触发的多状态里单独生成。
+- **重工写实服装**：摒弃轻浮薄纱与浮空甲片；粗粝手织布料、水洗做旧皮革、手锻黑铁/氧化青铜，不对称剪裁。剧情有成长线时按 V1（落魄/初始）→ V2（觉醒/崛起）→ V3（巅峰/统帅）三阶段设计造型演进。
+- **五联版式锁**：左侧三个全身立绘（正面/侧面/背面）+ 右侧两格竖排面部特写（正脸极致特写 / 3/4 角度展示下颌线）。
+
+### 场景 · 史诗巨物规范
+巨物恐惧尺度（megalophobia）制造极端纵深；阴郁冷肃调性（阴天漫反射或强对比体积光）；烟雾沙尘强制降噪抗锯齿。**五联布局锁**：顶部通栏超宽全景主图 + 下方四小图（街道平视 / 高空鸟瞰 / 地面细节 / 建筑立面中景）。低饱和写实色板，无高饱和魔法光效，无人物。
+
+### 道具 · 重工零件化规范
+写实重工 PBR：手锻黑铁、磨损皮革、斑驳黄铜/氧化青铜、微磨损刮痕。**1:1 四宫格锁**：左上正视组装态 / 右上 3/4 透视 / 左下顶视或侧视 / 右下零件平铺（knolling）。百分之百纯白背景，平滑环境光遮蔽，零噪点。
+
+### 英文提示词模板（本风格包下，每条提示词必须以对应 Global Style Lock 开头；[]内按题材与具体资产替换，示例为暗黑武侠，其他题材沿用同等质量与版式规范）
+
+角色模板：
+
+```text
+[Global Style Lock: Top-tier 3D Chinese animation (Donghua) CG style, Unreal Engine 5.4 cinematic character render, masterpiece beauty, flawless 3D CG model, 8k UHD resolution, octane render, clean render, denoised, raytraced shadows, crisp details, smooth textures.]
+A professional, high-fidelity character design sheet of [角色名], an Asian [身份/职业].
+[Pristine State Lock: Strictly in pristine studio character-model state, flawless immaculate beauty look, ZERO wounds, ZERO blood, ZERO dirt on skin. Hair and clothing neat.]
+[Peak Aesthetic Face & Skin Lock: （女性）ethereal breathtaking goddess-tier beauty, sharp heroic contours, high-bridge slender nose, mesmerizing almond eyes with dense velvet lashes, realistic SSS skin with healthy complexion, moist pink lips, natural dark-brown irises. （男性）peerless mesmerizing handsome, razor-sharp aristocratic jawline, deeply defined bone structure, narrow hypnotic phoenix eyes with natural black-brown irises, realistic SSS skin with warm blood undertones, subtle dangerous trace of a smile.]
+[Costume Lock: 按题材写高保真材质与剪裁，如 coarse hand-woven linen, distressed leather guards, brushed iron plates, realistic fabric folds with dynamic weight.]
+[Strict 5-Panel Layout Lock: Left Section: three full-length standing figures (front / side / back). Right Section: two vertical close-up panels (frontal face extreme close-up / three-quarter face close-up showing jawline).]
+[Ultra-HD Noise Control & Background Lock: pure solid neutral light-grey studio background, cinematic three-point lighting, subtle key light shadows on face, rim light on hair strands, super-resolution, no film grain, no noise, smooth SSS skin shading.]
+Absolutely NO text, NO labels, NO letters, NO watermarks, NO UI elements.
+```
+
+场景模板：
+
+```text
+[Global Style Lock: Top-tier 3D Chinese animation (Donghua) CG style, Unreal Engine 5.4 cinematic environment render, epic monumental scale, photorealistic PBR textures, 8k UHD resolution, octane render quality, clean render, denoised, raytraced shadows, crisp details.]
+A professional environment concept design sheet of [场景名], showing [核心物理特征与氛围].
+[Megalophobia Lock: colossal architecture creating overwhelming sense of scale, atmospheric volumetric lighting, subtle dust in the air.]
+[Strict 5-Panel Layout Lock: Top Section (full width): one dominant ultra-wide panoramic establishing shot. Middle-Left: street-level wide view. Middle-Right: high-angle aerial bird's-eye view of the layout. Bottom-Left: close-up ground-level detail shot. Bottom-Right: medium shot of a key facade/structure.]
+[Ultra-HD Noise Control & Lighting: low-saturation realistic palette, clear volumetric light, raytraced shadows, denoised clean atmosphere, sharp structural edges, no grain.]
+Pure environment showcase, absolutely NO characters, NO people, NO text, NO labels, NO UI elements, NO watermarks.
+```
+
+道具模板（1:1 四宫格）：
+
+```text
+[Global Style Lock: Top-tier 3D Chinese animation (Donghua) CG style, cinematic 3D CG prop model, Unreal Engine 5.4 cinematic render, 8k UHD resolution, clean render, denoised, raytraced shadows, crisp details, smooth textures.]
+A professional 3D design sheet of [道具名], showing its structure and disassembled parts.
+[Visual Shape & Material Lock: realistic PBR textures of [具体材质，如 hand-forged black iron, weathered copper, worn leather wraps], battle-worn and heavy.]
+[Strict Exploded Grid Layout Lock: the 1:1 square image MUST be divided into exactly 4 equal quadrants: Top-Left: front orthographic view assembled. Top-Right: 3/4 perspective view showing 3D volume. Bottom-Left: top-down or side-profile orthographic view. Bottom-Right: neat knolling layout of all disassembled components laid out flat.]
+[Ultra-HD Noise Control & Backdrop Lock: pure solid 100% white background, super-resolution, zero noise, smooth ambient occlusion shadows, clean metallic reflections.]
+Absolutely NO text, NO labels, NO letters, NO watermarks, NO UI elements.
+```
+
+---
+
 ## Step 0：视觉风格确认
 
 当用户要求“使用本 skill 处理剧本”且未明确给出风格时，必须先询问用户，不得直接生成资产库。
