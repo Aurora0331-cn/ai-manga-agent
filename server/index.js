@@ -1022,7 +1022,7 @@ ${selfCheck}
 }
 
 // 统一的 chat/completions 调用：带超时；若供应商不支持 response_format 则自动去掉重试一次。
-async function chatCompletion(config, payload, { retriedWithoutJsonMode = false } = {}) {
+async function chatCompletion(config, payload, { retriedWithoutJsonMode = false, retriedWithoutMaxTokens = false } = {}) {
   const timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 600000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1046,7 +1046,12 @@ async function chatCompletion(config, payload, { retriedWithoutJsonMode = false 
     // 部分供应商不认 response_format，报 400；去掉它重试一次。
     if (!retriedWithoutJsonMode && response.status === 400 && payload.response_format && /response_format|json_object|not support/i.test(errText)) {
       const { response_format, ...rest } = payload;
-      return chatCompletion(config, rest, { retriedWithoutJsonMode: true });
+      return chatCompletion(config, rest, { retriedWithoutJsonMode: true, retriedWithoutMaxTokens });
+    }
+    // 部分网关把 max_tokens 转成上游不认的 max_output_tokens 报 400；去掉它重试一次。
+    if (!retriedWithoutMaxTokens && response.status === 400 && payload.max_tokens && /max_tokens|max_output_tokens|max_completion_tokens/i.test(errText)) {
+      const { max_tokens, ...rest } = payload;
+      return chatCompletion(config, rest, { retriedWithoutJsonMode, retriedWithoutMaxTokens: true });
     }
     throw new Error(`LLM request failed: ${errText}`);
   }
@@ -1665,13 +1670,13 @@ function fallbackAssetPrompts({ project, assets, settings, ages = {}, styleTone 
   const cs = b.characters.filter((c) => pick('characters').includes(c.name));
   const ss = b.scenes.filter((s) => pick('scenes').includes(s.name));
   const ps = b.props.filter((p) => pick('props').includes(p.name));
-  // 角色/场景固定 21:9，道具固定 16:9（依美术资产 SKILL）
+  // 角色造型/场景固定 16:9，道具固定 1:1（基准脸另走 1:1，见前端）
   const characters = cs.map((c) => {
     const age = ages[c.name] ? `出镜年龄 ${ages[c.name]}，` : '';
-    return `### ${c.name}\n比例 21:9，${style}，角色设定图（右侧头部特写 + 左侧全身三视图），纯白无缝背景，仅呈现角色本体、服装与随身饰品；${age}${c.visual} 表情自然，真实皮肤质感，柔焦边缘，克制细节。`;
+    return `### ${c.name}\n比例 16:9，${style}，角色设定图（右侧头部特写 + 左侧全身三视图），纯白无缝背景，仅呈现角色本体、服装与随身饰品；${age}${c.visual} 表情自然，真实皮肤质感，柔焦边缘，克制细节。`;
   }).join('\n\n');
-  const scenes = ss.map((s) => `### ${s.name}\n比例 21:9，${style}，${tone}无人空镜场景设定图，仅呈现空间结构、固定陈设和环境质感：${s.description} 明确空间结构、主光位置、色温与关键陈设，画面中无人物。`).join('\n\n');
-  const props = ps.map((p) => `### ${p.name}\n比例 16:9，${style}，道具设定图，白底或中性背景，仅呈现单一道具：${p.rule} 材质统一干净，边缘柔和且形体清楚，保留必要结构细节。`).join('\n\n');
+  const scenes = ss.map((s) => `### ${s.name}\n比例 16:9，${style}，${tone}无人空镜场景设定图，仅呈现空间结构、固定陈设和环境质感：${s.description} 明确空间结构、主光位置、色温与关键陈设，画面中无人物。`).join('\n\n');
+  const props = ps.map((p) => `### ${p.name}\n比例 1:1，${style}，道具设定图，白底或中性背景，仅呈现单一道具：${p.rule} 材质统一干净，边缘柔和且形体清楚，保留必要结构细节。`).join('\n\n');
   const modules = { characters, scenes, props };
   return { mode: 'fallback', modules, markdown: composeAssetMarkdown(modules) };
 }
@@ -1685,7 +1690,7 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色与场景比例固定 21:9、道具固定 16:9；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
@@ -1703,14 +1708,28 @@ ${skill.slice(0, 24000)}`
   const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = { modules: {}, markdown: content }; }
-  // 模型有时把 modules.xxx 返回成对象/数组而非字符串，String() 会得到 "[object Object]"。
-  // 这里只接受字符串，其余置空，后续统一从 markdown 重建，保证抽取到真正的提示词文本。
+  // 模型有时把 modules.xxx 返回成数组/对象/中文键而非字符串（道具批次尤其常见），
+  // 这里做归一化：数组逐项拼接、{name,prompt} 对象转 "### 名称\n提示词"、映射对象按键名转小节。
   const rawMods = (parsed.modules && typeof parsed.modules === 'object') ? parsed.modules : {};
-  const asStr = (v) => (typeof v === 'string' ? v : '');
+  const toText = (v) => {
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v.map(toText).filter(Boolean).join('\n\n');
+    if (v && typeof v === 'object') {
+      const name = v.name || v['名称'] || v['资产名'] || '';
+      const body = v.prompt || v['提示词'] || v.description || v['描述'] || '';
+      if (name && typeof body === 'string' && body) return `### ${name}\n${body}`;
+      return Object.entries(v).map(([k, val]) => {
+        const text = toText(val);
+        if (!text) return '';
+        return text.trimStart().startsWith('###') ? text : `### ${k}\n${text}`;
+      }).filter(Boolean).join('\n\n');
+    }
+    return '';
+  };
   let modules = {
-    characters: asStr(rawMods.characters),
-    scenes: asStr(rawMods.scenes),
-    props: asStr(rawMods.props)
+    characters: toText(rawMods.characters ?? rawMods['角色']),
+    scenes: toText(rawMods.scenes ?? rawMods['场景']),
+    props: toText(rawMods.props ?? rawMods['道具'])
   };
   const markdown = String(parsed.markdown || ((modules.characters || modules.scenes || modules.props) ? composeAssetMarkdown(modules) : content));
   // 兜底：模型没按 JSON 的 modules 返回（只给了 markdown/纯文本）时，从 markdown 文本重建分段，
@@ -2075,6 +2094,23 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
       }
       if (!output) { usedFallback = true; output = fallbackAssetPrompts({ project, assets, settings, ages, styleTone }); }
       output.items = buildAssetItems(assets, output.modules);
+      // 名字级兜底：某批成功但模型小节标题对不上资产名时，提取为空会显示"未生成"。
+      // 这里逐个补上本地模板，并如实计入部分失败提示。
+      const missing = output.items.filter((it) => !String(it.prompt || '').trim());
+      if (missing.length) {
+        for (const it of missing) {
+          const fb = fallbackAssetPrompts({ project, assets: { characters: [], scenes: [], props: [], [it.type]: [it.name] }, settings, ages, styleTone });
+          it.prompt = String(fb.modules[it.type] || '').replace(/^###[^\n]*\n?/, '').trim();
+          if (!it.prompt) {
+            const kind = it.type === 'characters' ? '角色设定图（右侧头部特写 + 左侧全身三视图），纯白无缝背景' : it.type === 'scenes' ? '无人空镜场景设定图' : '道具设定图，白底或中性背景，仅呈现单一道具';
+            it.prompt = `比例 ${it.type === 'props' ? '1:1' : '16:9'}，${settings.visualStyle || '写实电影感'}，${kind}：${it.name}。高清细节，材质真实，画面干净。`;
+          }
+        }
+        if (!usedFallback) {
+          const msg = `${missing.length} 个资产未能从模型输出中匹配到内容，已用本地模板兜底：${missing.map((it) => it.name).join('、')}。可对它们单独点「重新生成」。`;
+          llmError = llmError ? { ...llmError, message: `${llmError.message} 另有 ${msg}` } : { code: 'partial_fallback', message: msg };
+        }
+      }
 
       finishJob(jobId, {
         output,
