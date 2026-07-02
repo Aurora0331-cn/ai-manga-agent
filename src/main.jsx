@@ -59,7 +59,7 @@ const STYLE_PROMPTS = {
   '日漫风格': 'anime style, 2D animation, cel shading, vibrant colors, clean lines',
   '新海诚风格': 'Makoto Shinkai style, beautiful sky, lens flare, detailed background, emotional',
   '国风水墨风格': 'Chinese ink painting, watercolor, traditional art, flowing lines, oriental aesthetic',
-  '游戏原画风格': 'game cg, splash art, highly detailed, epic composition, fantasy style',
+  '游戏原画风格': '顶级3D国漫CG影视级渲染，极致神颜，SSS次表面散射皮肤质感，电影级三点式控光，写实重工PBR材质，超清降噪。Top-tier 3D Chinese animation (Donghua) CG style, Unreal Engine 5.4 cinematic render, game cg, splash art, epic composition, masterpiece, octane render, clean render, denoised, raytraced shadows, 8k UHD resolution, crisp details, smooth textures',
   '皮克斯风格': 'Pixar style, 3D render, cinematic lighting, expressive eyes, heartwarming',
   '自定义': ''
 };
