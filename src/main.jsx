@@ -186,10 +186,11 @@ function App() {
   const [theme, setTheme] = useState(loadTheme);
   const [loading, setLoading] = useState('');
   const [notice, setNotice] = useState('');
-  // 提示消息 3 秒后自动消失
+  // 提示消息自动消失：普通提示 3 秒；错误类提示 9 秒（避免用户来不及看到失败原因）
   useEffect(() => {
     if (!notice) return undefined;
-    const timer = setTimeout(() => setNotice(''), 3000);
+    const isError = /失败|错误|超时|不存在|未配置|未填写|不可用|Error/i.test(String(notice));
+    const timer = setTimeout(() => setNotice(''), isError ? 9000 : 3000);
     return () => clearTimeout(timer);
   }, [notice]);
   const [showModelSettings, setShowModelSettings] = useState(false);
@@ -247,7 +248,7 @@ function App() {
   useEffect(() => {
     if (!project?.id) return;
     try {
-      const keep = Object.fromEntries(Object.entries(baseFaces).filter(([, u]) => /^https?:/i.test(String(u))));
+      const keep = Object.fromEntries(Object.entries(baseFaces).filter(([, u]) => /^(https?:|\/exports\/)/i.test(String(u))));
       if (Object.keys(keep).length) localStorage.setItem(`ai-manga-agent.basefaces.${project.id}`, JSON.stringify(keep));
     } catch { /* ignore：超出配额就放弃持久化 */ }
   }, [baseFaces, project?.id]);
