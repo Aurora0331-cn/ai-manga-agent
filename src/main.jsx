@@ -219,6 +219,21 @@ function App() {
   const [worldviewCustom, setWorldviewCustom] = useState('');
   const [assetImages, setAssetImages] = useState({}); // imgKey(type,name,outfit) -> 图像 URL
   const [baseFaces, setBaseFaces] = useState({});     // 角色名 -> 基准脸 1:1 大头照 URL
+  // 基准脸持久化：只存 http(s) URL（data: 太大存不下）。否则刷新页面后基准脸丢失，出造型不带锁脸参考。
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`ai-manga-agent.basefaces.${project.id}`) || '{}');
+      if (saved && typeof saved === 'object' && Object.keys(saved).length) setBaseFaces((m) => ({ ...saved, ...m }));
+    } catch { /* ignore */ }
+  }, [project?.id]);
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const keep = Object.fromEntries(Object.entries(baseFaces).filter(([, u]) => /^https?:/i.test(String(u))));
+      if (Object.keys(keep).length) localStorage.setItem(`ai-manga-agent.basefaces.${project.id}`, JSON.stringify(keep));
+    } catch { /* ignore：超出配额就放弃持久化 */ }
+  }, [baseFaces, project?.id]);
   const [imgBusy, setImgBusy] = useState({});         // 正在出图的 key 集合（支持并发）
   const [lightbox, setLightbox] = useState(null);     // {url, name} 点击缩略图放大
   const [zipBusy, setZipBusy] = useState(false);      // 打包下载中
@@ -466,7 +481,9 @@ function App() {
     const key = imgKey('characters', charName, outfit.name);
     const ref = baseFaces[charName] || '';
     if (!ref) setNotice('提示：未生成基准脸，出图脸型可能不稳。建议先「生成基准脸」。');
-    const url = await runImageJob({ prompt: outfit.prompt, referenceImage: ref, size: '2048x1152', busyKey: key });
+    // 有基准脸时在提示词里显式声明锁脸（参考图走 /images/edits 一同发给 API）
+    const facelock = ref ? '【锁脸】人物面部必须与参考图完全一致（同一张脸、同一骨相发际），仅按以下提示词改变服饰、妆发与造型：\n' : '';
+    const url = await runImageJob({ prompt: `${facelock}${outfit.prompt}`, referenceImage: ref, size: '2048x1152', busyKey: key });
     if (url) setAssetImages((m) => ({ ...m, [key]: url }));
     return url;
   }
