@@ -191,7 +191,7 @@ const STYLE_PRESETS = {
   '日漫风格': '现代日系动画电影风格，线条干净利落，动漫风格，2D动画，赛璐璐渲染，鲜艳的色彩。anime style, 2D animation, cel shading, vibrant colors, clean lines',
   '新海诚风格': '新海诚电影动画风格，光影通透细腻，色彩清新明亮。新海诚风格，美丽的天空，镜头光斑，精致的背景，充满情感。Makoto Shinkai style, beautiful sky, lens flare, detailed background, emotional',
   '国风水墨风格': '中国水墨画，水彩画，传统艺术，流畅的线条，东方美学。Chinese ink painting, watercolor, traditional art, flowing lines, oriental aesthetic',
-  '游戏原画风格': '游戏CG，封面艺术，高度细致，史诗般的构图，奇幻风格。game cg, splash art, highly detailed, epic composition, fantasy style',
+  '游戏原画风格': '顶级3D国漫CG影视级渲染，极致神颜，SSS次表面散射皮肤质感，电影级三点式控光，写实重工PBR材质，超清降噪。Top-tier 3D Chinese animation (Donghua) CG style, Unreal Engine 5.4 cinematic render, game cg, splash art, epic composition, masterpiece, octane render, clean render, denoised, raytraced shadows, 8k UHD resolution, crisp details, smooth textures',
   '皮克斯风格': '三维渲染二维技术风格，柔和卡通造型，极致的物理真实感，细腻材质表现，大头身比、圆润的轮廓和富有灵性的大眼睛，夸张与圆润的角色设计，情绪化的色彩运用，电影级光影，治愈系氛围。Pixar style, 3D render, cinematic lighting, expressive eyes, heartwarming'
 };
 
@@ -1707,7 +1707,7 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
 硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节，小节标题必须与资产名完全一致（不加@、不加任何前后缀）；场景与道具严禁再拆日间/夜间等子状态、严禁使用 #### 子标题，一个场景/道具只输出一段完整提示词；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，且必须采用「角色设定图」版式：右侧为该造型的角色头部清晰特写、左侧为该造型的全身三视图（正面/侧面/背面），纯白无缝背景；显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
-${skill.slice(0, 24000)}`
+${skill.slice(0, 30000)}`
       },
       {
         role: 'user',
