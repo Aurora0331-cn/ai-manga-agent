@@ -2333,7 +2333,15 @@ app.post('/api/script/build', async (req, res, next) => {
 });
 
 // 参考图 → Blob（data URL 解码 / http 下载）。
+// /exports/xxx.png 短链 → 本地文件路径（生成图落盘后前后端都用短链，避免几 MB 的 base64 来回传输打爆免费实例内存）
+function localExportPath(url) {
+  const m = String(url || '').match(/^\/exports\/([\w.\-]+)$/);
+  return m ? path.join(outDir, m[1]) : null;
+}
+
 async function refImageToBlob(ref) {
+  const local = localExportPath(ref);
+  if (local) return new Blob([await fs.readFile(local)], { type: 'image/png' });
   if (String(ref).startsWith('data:')) {
     const b64 = String(ref).split(',')[1] || '';
     return new Blob([Buffer.from(b64, 'base64')], { type: 'image/png' });
@@ -2393,6 +2401,19 @@ app.post('/api/generate-image', async (req, res, next) => {
           finishJob(jobId, { error: '图像生成返回为空（该模型可能不兼容该接口，可换一个图像模型实例）。' });
           return;
         }
+        // base64 大图落盘为 /exports 短链：任务结果、锁脸/结构参考、下载全部走短链，
+        // 避免几 MB base64 在 JSON 里来回复制导致免费实例内存耗尽（曾引发实例崩溃、任务丢失）。
+        if (url.startsWith('data:')) {
+          try {
+            const b64 = url.split(',')[1] || '';
+            const fname = `img_${crypto.randomBytes(8).toString('hex')}.png`;
+            await fs.mkdir(outDir, { recursive: true });
+            await fs.writeFile(path.join(outDir, fname), Buffer.from(b64, 'base64'));
+            url = `/exports/${fname}`;
+          } catch (persistErr) {
+            console.warn(`Persist generated image failed: ${persistErr.message}`);
+          }
+        }
         finishJob(jobId, { url });
       } catch (error) {
         finishJob(jobId, { error: error.name === 'AbortError' ? `图像生成超时（>${timeoutMs}ms）` : withCause(error) });
@@ -2403,6 +2424,8 @@ app.post('/api/generate-image', async (req, res, next) => {
 
 // 取图像字节：支持 data: URL 与 http(s) URL。
 async function imageToBuffer(url) {
+  const local = localExportPath(url);
+  if (local) return { buf: await fs.readFile(local), ext: 'png' };
   if (String(url).startsWith('data:')) {
     const b64 = String(url).split(',')[1] || '';
     return { buf: Buffer.from(b64, 'base64'), ext: 'png' };
