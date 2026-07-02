@@ -253,6 +253,7 @@ function createJob() {
 }
 function finishJob(id, result) { const j = jobs.get(id); if (j) { j.status = 'done'; j.result = result; } }
 function failJob(id, error) { const j = jobs.get(id); if (j) { j.status = 'error'; j.error = error; } }
+function updateJob(id, patch) { const j = jobs.get(id); if (j) Object.assign(j, patch); }
 // 定期清理 30 分钟前的旧任务，避免内存泄漏
 setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000;
@@ -1271,7 +1272,7 @@ app.get('/api/llm/providers', async (_req, res) => {
 app.get('/api/jobs/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: '任务不存在或已过期，请重新生成。' });
-  res.json({ status: job.status, result: job.result, error: job.error });
+  res.json({ status: job.status, result: job.result, error: job.error, progress: job.progress || null });
 });
 
 app.post('/api/llm/test', async (req, res, next) => {
@@ -1703,7 +1704,7 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，且必须采用「角色设定图」版式：右侧为该造型的角色头部清晰特写、左侧为该造型的全身三视图（正面/侧面/背面），纯白无缝背景；显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节，小节标题必须与资产名完全一致（不加@、不加任何前后缀）；场景与道具严禁再拆日间/夜间等子状态、严禁使用 #### 子标题，一个场景/道具只输出一段完整提示词；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，且必须采用「角色设定图」版式：右侧为该造型的角色头部清晰特写、左侧为该造型的全身三视图（正面/侧面/背面），纯白无缝背景；显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
@@ -1770,6 +1771,8 @@ async function callAssetLLMChunked(args) {
   const failed = [];
   let firstError = null;
   let cursor = 0;
+  let completed = 0;
+  const { onProgress } = args;
   async function worker() {
     for (;;) {
       const i = cursor++;
@@ -1789,6 +1792,9 @@ async function callAssetLLMChunked(args) {
         }
       }
       if (text) {
+        // 场景/道具偶发被模型写成「#### @名称_状态」子标题（造型格式），拆分器只认 ###，
+        // 会把多个资产粘成一段。这里统一规格化成 ### 顶级小节再存。
+        if (chunk.type !== 'characters') text = text.replace(/^####\s*@?/gm, '### ');
         parts[chunk.type][i] = text; // 用全局批次序号占位，保持原始顺序
       } else {
         if (!firstError) firstError = lastError;
@@ -1797,6 +1803,8 @@ async function callAssetLLMChunked(args) {
         const fb = fallbackAssetPrompts({ project: args.project, assets: subAssets, settings: args.settings, ages: args.ages, styleTone: args.styleTone });
         parts[chunk.type][i] = fb.modules[chunk.type];
       }
+      completed += 1;
+      if (typeof onProgress === 'function') { try { onProgress(completed, chunks.length); } catch { /* ignore */ } }
     }
   }
   await Promise.all(Array.from({ length: Math.min(3, Math.max(chunks.length, 1)) }, worker));
@@ -2180,7 +2188,10 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
       let output = null;
       if (!llmError) {
         try {
-          const { modules, failed, firstError } = await callAssetLLMChunked({ skill: skill.content, project, assets, settings, llm, ages, styleTone, characterLook, worldview });
+          const { modules, failed, firstError } = await callAssetLLMChunked({
+            skill: skill.content, project, assets, settings, llm, ages, styleTone, characterLook, worldview,
+            onProgress: (done, totalChunks) => updateJob(jobId, { progress: { done, total: totalChunks } })
+          });
           if (failed.length >= total) throw (firstError || new Error('模型未返回可用内容'));
           output = { mode: 'llm', modules, markdown: composeAssetMarkdown(modules) };
           if (failed.length && firstError) {
@@ -2212,6 +2223,16 @@ app.post('/api/projects/:projectId/assets/generate', async (req, res, next) => {
           const msg = `${missing.length} 个资产未能从模型输出中匹配到内容，已用本地模板兜底：${missing.map((it) => it.name).join('、')}。可对它们单独点「重新生成」。`;
           llmError = llmError ? { ...llmError, message: `${llmError.message} 另有 ${msg}` } : { code: 'partial_fallback', message: msg };
         }
+      }
+      // 持久化生成结果：轮询中断（刷新/网络/实例重启）后重开项目仍能看到已生成的提示词。
+      try {
+        project.assetItems = {
+          ...(project.assetItems || {}),
+          ...Object.fromEntries(output.items.map((it) => [`${it.type}|${it.name}`, it.prompt]))
+        };
+        await persistProject(project);
+      } catch (persistError) {
+        console.warn(`Persist asset items failed: ${persistError.message}`);
       }
 
       finishJob(jobId, {
