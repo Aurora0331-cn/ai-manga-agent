@@ -658,7 +658,9 @@ async function extractUploadedText(file) {
 
 function splitEpisodes(script) {
   const text = normalizeText(script);
-  const marker = /(?:^|\n)\s*(?:第\s*[一二三四五六七八九十百千万\d]+\s*[集话回]|EP\s*\d+|Episode\s*\d+|第\s*\d+\s*集)[^\n]*/gi;
+  // 兼容生成剧本常见的分集标题写法：## 第X集、**第X集**、【第X集】、（第X集）、EP01、Episode 1、S01E02、第X集《标题》等。
+  // 原正则只允许行首空白，遇到 markdown 标题(## )或括号前缀就全部识别失败，导致整个剧本被当成一集或按字数乱切。
+  const marker = /(?:^|\n)[ \t#>*\-—·]*[【\[（(]?\s*(?:第\s*[零一二三四五六七八九十百千万两\d]+\s*[集话回]|EP\s*\.?\s*\d+|Episode\s*\d+|S\d+\s*E\d+)\s*[】\]）)]?[^\n]*/gi;
   const matches = [...text.matchAll(marker)];
 
   if (matches.length > 1) {
@@ -699,7 +701,7 @@ function createEpisode(number, title, script) {
   return {
     id: uid('ep'),
     number,
-    title: title.replace(/^#+\s*/, ''),
+    title: title.replace(/^[#>*\-—·\s]+/, '').replace(/^[【\[（(]\s*/, '').replace(/[】\]）)]\s*$/, '').replace(/\*+$/, '').trim() || `第 ${number} 集`,
     script,
     scenes: splitScenes(script),
     summary: summarizeText(script, 110),
@@ -2351,11 +2353,13 @@ app.post('/api/generate-image', async (req, res, next) => {
         let r;
         if (referenceImage) {
           const form = new FormData();
-          form.append('image', await refImageToBlob(referenceImage), 'reference.png');
+          // 注意：文本字段必须放在文件之前——部分网关（new_api）按流式顺序解析 multipart，
+          // model 排在文件后面会读不到，报 "Model name not specified"。
           form.append('model', image.model);
           form.append('prompt', String(prompt).slice(0, 4000));
           form.append('n', '1');
           form.append('size', size);
+          form.append('image', await refImageToBlob(referenceImage), 'reference.png');
           r = await longFetch(`${baseUrl}/images/edits`, {
             method: 'POST', headers: { Authorization: `Bearer ${image.apiKey}` }, body: form, signal: controller.signal
           });
