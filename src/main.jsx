@@ -468,6 +468,39 @@ function App() {
     });
   }
 
+  // ===== 提示词可编辑：直接改 assetItems，去抖后持久化到服务端 =====
+  const assetSaveTimerRef = React.useRef(null);
+  useEffect(() => {
+    if (!project?.id || !Object.keys(assetItems).length) return undefined;
+    clearTimeout(assetSaveTimerRef.current);
+    assetSaveTimerRef.current = setTimeout(() => {
+      fetch(`${API}/projects/${project.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assetItems })
+      }).catch(() => { /* 静默：下次生成/编辑会再存 */ });
+    }, 1500);
+    return () => clearTimeout(assetSaveTimerRef.current);
+  }, [assetItems, project?.id]);
+  function updateAssetPrompt(type, name, value) {
+    setAssetItems((m) => ({ ...m, [assetKey(type, name)]: value }));
+  }
+  // 角色的锚点/单个造型编辑：重组回 ### @名 + #### @造型 的原始结构
+  function updateCharacterPart(name, patch) {
+    const key = assetKey('characters', name);
+    setAssetItems((m) => {
+      const raw0 = m[key] || '';
+      if (!/(^|\n)#{3,4}\s/.test(raw0)) {
+        // 无子标题结构：整段即唯一造型，直接替换
+        return { ...m, [key]: patch.prompt !== undefined ? patch.prompt : raw0 };
+      }
+      const parsed = parseCharacterOutfits(raw0);
+      const anchor = patch.anchor !== undefined ? patch.anchor : parsed.anchor;
+      const outfits = parsed.outfits.map((o, i) => (patch.outfitIndex === i ? { ...o, prompt: patch.prompt } : o));
+      // 注意：存储的角色提示词不含「### @名」标题行（拆分时已剥掉），重组时保持同样结构
+      const raw = `${anchor ? `${anchor}\n\n` : ''}${outfits.map((o) => `#### @${o.name}\n${o.prompt}`).join('\n\n')}`;
+      return { ...m, [key]: raw };
+    });
+  }
+
   async function callAssetGen(assets) {
     const cl = characterLook === '自定义' ? characterLookCustom : characterLook;
     const wv = worldview === '自定义' ? worldviewCustom : worldview;
@@ -1289,9 +1322,7 @@ function App() {
           </div>
           <div className="asset-config">
             <label className="field"><span>视觉风格</span>
-              <select value={settings.visualStyle} onChange={(e) => setSettings({ ...settings, visualStyle: e.target.value })}>
-                {STYLE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <input value={project?.style || '跟随左栏风格'} readOnly title="跟随左栏「风格」设置；要修改请在左栏选择" style={{ opacity: 0.85, cursor: 'not-allowed' }} />
             </label>
             <label className="field"><span>角色审美 · 面孔</span>
               <select value={characterLook} onChange={(e) => setCharacterLook(e.target.value)}>
@@ -1445,8 +1476,10 @@ function App() {
                       <div className="outfit-list">
                         {parsed.anchor && (
                           <div className="outfit-anchor">
-                            <div className="outfit-anchor-tag">面部锚点（全状态固定 · 所有造型共用同一张脸）</div>
-                            <pre className="markdown-view">{parsed.anchor}</pre>
+                            <div className="outfit-anchor-tag">面部锚点（全状态固定 · 所有造型共用同一张脸 · 可直接编辑）</div>
+                            <textarea className="markdown-view" style={{ width: '100%', minHeight: 110, resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                              value={parsed.anchor}
+                              onChange={(e) => updateCharacterPart(assetView.name, { anchor: e.target.value })} />
                           </div>
                         )}
                         {parsed.outfits.map((o, i) => {
@@ -1476,7 +1509,9 @@ function App() {
                                     </div>}
                               </div>
                             )}
-                            <pre className="markdown-view">{o.prompt}</pre>
+                            <textarea className="markdown-view" style={{ width: '100%', minHeight: 130, resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                              value={o.prompt}
+                              onChange={(e) => updateCharacterPart(assetView.name, { outfitIndex: i, prompt: e.target.value })} />
                           </div>
                           );
                         })}
@@ -1508,7 +1543,9 @@ function App() {
                                   </div>}
                             </div>
                           )}
-                          <pre className="markdown-view">{raw}</pre>
+                          <textarea className="markdown-view" style={{ width: '100%', minHeight: 160, resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                            value={raw}
+                            onChange={(e) => updateAssetPrompt(assetView.type, assetView.name, e.target.value)} />
                         </>
                       );
                     })()}
@@ -1548,7 +1585,9 @@ function App() {
                   optionLabels={Object.fromEntries(videoSkillOptions.map((t) => [t.id, t.name]))}
                   onChange={setVideoSkillId} />
                 <SelectField label="画幅" value={settings.aspectRatio} options={['9:16', '16:9', '21:9', '2.35:1']} onChange={(v) => setSettings({ ...settings, aspectRatio: v })} />
-                <SelectField label="视觉风格" value={settings.visualStyle} options={STYLE_NAMES} onChange={(v) => setSettings({ ...settings, visualStyle: v })} />
+                <label className="field"><span>视觉风格</span>
+                  <input value={project?.style || '跟随左栏风格'} readOnly title="跟随左栏「风格」设置；要修改请在左栏选择" style={{ opacity: 0.85, cursor: 'not-allowed' }} />
+                </label>
                 <SelectField label="文戏强度" value={settings.dramaIntensity} options={['低克制', '中等情绪', '高压对峙', '崩溃边缘']} onChange={(v) => setSettings({ ...settings, dramaIntensity: v })} />
               </div>
 
