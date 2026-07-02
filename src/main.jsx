@@ -466,7 +466,7 @@ function App() {
     const key = imgKey('characters', charName, outfit.name);
     const ref = baseFaces[charName] || '';
     if (!ref) setNotice('提示：未生成基准脸，出图脸型可能不稳。建议先「生成基准脸」。');
-    const url = await runImageJob({ prompt: outfit.prompt, referenceImage: ref, busyKey: key });
+    const url = await runImageJob({ prompt: outfit.prompt, referenceImage: ref, size: '2048x1152', busyKey: key });
     if (url) setAssetImages((m) => ({ ...m, [key]: url }));
     return url;
   }
@@ -490,7 +490,8 @@ function App() {
     if (!prompt) { setNotice('请先生成该资产的提示词，再出图。'); return; }
     const key = imgKey(type, name, '默认');
     setNotice('正在生成图像，可能 20-60 秒…');
-    const url = await runImageJob({ prompt, busyKey: key });
+    // 场景 16:9 2K；道具 1:1 2K
+    const url = await runImageJob({ prompt, size: type === 'props' ? '2048x2048' : '2048x1152', busyKey: key });
     if (url) { setAssetImages((m) => ({ ...m, [key]: url })); setNotice('图像已生成。'); }
   }
 
@@ -501,7 +502,7 @@ function App() {
     const anchor = parseCharacterOutfits(raw).anchor || raw;
     const prompt = `原创角色 1:1 胸像特写定妆照，灰色影棚背景，高级商业摄影质感，真人写实风格，只拍头部、肩颈到胸口上方，人物面部占画面主要面积，肩颈自然入镜，不拍到腰部以下。面部设定：${String(anchor).slice(0, 1600)}。表情自然、安静、克制，不夸张、不刻意微笑。明亮通透影棚光，轻微伦勃朗阴影展现骨相结构。真实皮肤纹理、毛孔自然、发丝清晰、五官自然协调、面部结构稳定。不参考任何真实人物、明星、网红或影视角色。负面：明星脸，网红脸，撞脸，塑料皮肤，AI假脸，锥子脸，脸部变形，多人同框，全身照，背景杂乱。`;
     setNotice('正在生成基准脸（1:1 定妆照），可能 20-60 秒…');
-    const url = await runImageJob({ prompt, size: '1024x1024', busyKey: `base|${name}` });
+    const url = await runImageJob({ prompt, size: '2048x2048', busyKey: `base|${name}` });
     if (url) { setBaseFaces((m) => ({ ...m, [name]: url })); setNotice('基准脸已生成。后续该角色造型出图会以它为参考锁脸。'); }
     return url;
   }
