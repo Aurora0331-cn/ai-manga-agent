@@ -555,10 +555,10 @@ h2, h3 { letter-spacing: -0.012em; }
 .age-confirm-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .age-confirm-head span { font-size: 14px; font-weight: 700; color: var(--text); }
 .age-confirm-head em { font-style: normal; font-size: 12px; color: var(--text-muted); }
-.age-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
-.age-item { display: grid; grid-template-columns: 4.5em 1fr; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
+.age-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; overflow: hidden; }
+.age-item { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); min-width: 0; }
 .age-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.age-item input { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500; }
+.age-item input { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500; }
 .age-item input::placeholder { color: var(--text-faint); }
 .age-item input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
 

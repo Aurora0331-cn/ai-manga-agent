@@ -535,8 +535,9 @@ function App() {
     const key = imgKey('characters', charName, outfit.name);
     const ref = baseFaces[charName] || '';
     if (!ref) setNotice('提示：未生成基准脸，出图脸型可能不稳。建议先「生成基准脸」。');
-    // 有基准脸时在提示词里显式声明锁脸（参考图走 /images/edits 一同发给 API）
-    const facelock = ref ? '【锁脸】人物面部必须与参考图完全一致（同一张脸、同一骨相发际），仅按以下提示词改变服饰、妆发与造型：\n' : '';
+    // 有基准脸时在提示词里显式声明锁脸（参考图走 /images/edits 一同发给 API）。
+    // 明确"参考图优先"：造型提示词里继承的面部文字描述可能与参考图有出入，声明冲突时一律以参考图为准，避免文字污染脸型。
+    const facelock = ref ? '【锁脸·最高优先级】人物面部以参考图为唯一标准：同一张脸、同一骨相、同一发际线与肤色，五官比例与参考图完全一致。下方文字中的任何面部描述仅供理解人设，凡与参考图不一致之处，一律以参考图为准。仅按以下提示词改变服饰、妆发与造型：\n' : '';
     const url = await runImageJob({ prompt: `${facelock}${outfit.prompt}`, referenceImage: ref, size: '2048x1152', busyKey: key });
     if (url) setAssetImages((m) => ({ ...m, [key]: url }));
     return url;
