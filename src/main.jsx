@@ -547,7 +547,9 @@ function App() {
       mergeAssetItems(data.output?.items);
       setNotice(data.usedFallback
         ? `美术资产：${mapLlmError(data.llmError)}，已用本地兜底生成。`
-        : `已用 ${data.provider} / ${data.model} 生成 ${data.output?.items?.length || 0} 个资产提示词。`);
+        : data.llmError
+          ? `美术资产部分失败：${mapLlmError(data.llmError)}`
+          : `已用 ${data.provider} / ${data.model} 生成 ${data.output?.items?.length || 0} 个资产提示词。`);
     } catch (error) { setNotice(error.message); } finally { setLoading(''); }
   }
 
