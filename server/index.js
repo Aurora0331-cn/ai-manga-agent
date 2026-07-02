@@ -209,7 +209,7 @@ const PROJECT_STYLES = {
   '自定义': ''
 };
 const DEFAULT_PROJECT_STYLE = '电影质感';
-const DEFAULT_PROJECT_MODELS = { analysis: 'Doubao 2.0', image: 'Seedream 4.5', video: 'Like Pro 1.0' };
+const DEFAULT_PROJECT_MODELS = { analysis: 'gpt-5.5', image: 'gpt-image-2', video: '' };
 function projectStylePrompt(style) {
   return (style in PROJECT_STYLES) ? PROJECT_STYLES[style] : (STYLE_PRESETS[style] || '');
 }
@@ -370,6 +370,19 @@ function normalizeText(text = '') {
 
 function stripMarkdownFence(value) {
   return value.replace(/^```(?:json|markdown)?\s*/i, '').replace(/```$/i, '').trim();
+}
+
+// 从 chat/completions 响应里尽可能取出正文：兼容 content 为数组（分块返回）、
+// 正文被放进 reasoning_content/reasoning（gpt-5.5 等推理模型经网关时常见）等非标准返回。
+// 取不到时打日志保留现场，便于排查"网关有调用但解析为空"。
+function extractMessageText(data) {
+  const msg = data?.choices?.[0]?.message || {};
+  let c = msg.content;
+  if (Array.isArray(c)) c = c.map((p) => (typeof p === 'string' ? p : (p && (p.text || p.content)) || '')).join('');
+  let text = String(c || '');
+  if (!text.trim()) text = String(msg.reasoning_content || msg.reasoning || '');
+  if (!text.trim()) console.warn(`LLM empty content; raw choice: ${JSON.stringify(data?.choices?.[0] || {}).slice(0, 500)}`);
+  return text;
 }
 
 function extractJsonCandidate(value = '') {
@@ -1022,8 +1035,8 @@ ${selfCheck}
 }
 
 // 统一的 chat/completions 调用：带超时；若供应商不支持 response_format 则自动去掉重试一次。
-async function chatCompletion(config, payload, { retriedWithoutJsonMode = false, retriedWithoutMaxTokens = false } = {}) {
-  const timeoutMs = Number(process.env.LLM_TIMEOUT_MS) || 600000;
+async function chatCompletion(config, payload, { retriedWithoutJsonMode = false, retriedWithoutMaxTokens = false, timeoutMs: timeoutOverride = 0 } = {}) {
+  const timeoutMs = timeoutOverride || Number(process.env.LLM_TIMEOUT_MS) || 600000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
@@ -1046,12 +1059,12 @@ async function chatCompletion(config, payload, { retriedWithoutJsonMode = false,
     // 部分供应商不认 response_format，报 400；去掉它重试一次。
     if (!retriedWithoutJsonMode && response.status === 400 && payload.response_format && /response_format|json_object|not support/i.test(errText)) {
       const { response_format, ...rest } = payload;
-      return chatCompletion(config, rest, { retriedWithoutJsonMode: true, retriedWithoutMaxTokens });
+      return chatCompletion(config, rest, { retriedWithoutJsonMode: true, retriedWithoutMaxTokens, timeoutMs: timeoutOverride });
     }
     // 部分网关把 max_tokens 转成上游不认的 max_output_tokens 报 400；去掉它重试一次。
     if (!retriedWithoutMaxTokens && response.status === 400 && payload.max_tokens && /max_tokens|max_output_tokens|max_completion_tokens/i.test(errText)) {
       const { max_tokens, ...rest } = payload;
-      return chatCompletion(config, rest, { retriedWithoutJsonMode, retriedWithoutMaxTokens: true });
+      return chatCompletion(config, rest, { retriedWithoutJsonMode, retriedWithoutMaxTokens: true, timeoutMs: timeoutOverride });
     }
     throw new Error(`LLM request failed: ${errText}`);
   }
@@ -1704,8 +1717,9 @@ ${skill.slice(0, 24000)}`
     max_tokens: Number(process.env.LLM_MAX_TOKENS) || 8000
   };
   if ((process.env.LLM_JSON_MODE || 'true') !== 'false') payload.response_format = { type: 'json_object' };
-  const data = await chatCompletion(config, payload);
-  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  // 单批资产不大，用更短的超时（默认 240s）+ 上层重试一次，避免网关卡队列时一等 600s。
+  const data = await chatCompletion(config, payload, { timeoutMs: Number(process.env.ASSET_CHUNK_TIMEOUT_MS) || 240000 });
+  const content = stripMarkdownFence(extractMessageText(data));
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = { modules: {}, markdown: content }; }
   // 模型有时把 modules.xxx 返回成数组/对象/中文键而非字符串（道具批次尤其常见），
@@ -1762,14 +1776,23 @@ async function callAssetLLMChunked(args) {
       if (i >= chunks.length) return;
       const chunk = chunks[i];
       const subAssets = { characters: [], scenes: [], props: [], [chunk.type]: chunk.names };
-      try {
-        const out = await callAssetLLM({ ...args, assets: subAssets });
-        const text = String(out?.modules?.[chunk.type] || '').trim();
-        if (!text) throw new Error('模型返回空内容');
+      let text = '';
+      let lastError = null;
+      for (let attempt = 1; attempt <= 2 && !text; attempt += 1) {
+        try {
+          const out = await callAssetLLM({ ...args, assets: subAssets });
+          text = String(out?.modules?.[chunk.type] || '').trim();
+          if (!text) throw new Error('模型返回空内容');
+        } catch (error) {
+          lastError = error;
+          if (attempt === 1) console.warn(`Asset chunk retrying (${chunk.type}: ${chunk.names.join('、')}): ${error.message}`);
+        }
+      }
+      if (text) {
         parts[chunk.type][i] = text; // 用全局批次序号占位，保持原始顺序
-      } catch (error) {
-        if (!firstError) firstError = error;
-        console.warn(`Asset chunk failed (${chunk.type}: ${chunk.names.join('、')}): ${error.message}`);
+      } else {
+        if (!firstError) firstError = lastError;
+        console.warn(`Asset chunk failed (${chunk.type}: ${chunk.names.join('、')}): ${lastError?.message}`);
         failed.push(...chunk.names);
         const fb = fallbackAssetPrompts({ project: args.project, assets: subAssets, settings: args.settings, ages: args.ages, styleTone: args.styleTone });
         parts[chunk.type][i] = fb.modules[chunk.type];
@@ -1888,7 +1911,7 @@ async function callAssetAnalyzeLLM({ script, llm }) {
   };
   if ((process.env.LLM_JSON_MODE || 'true') !== 'false') payload.response_format = { type: 'json_object' };
   const data = await chatCompletion(config, payload);
-  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  const content = stripMarkdownFence(extractMessageText(data));
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = {}; }
   return { provider: config.providerName, model: config.model, ...normalizeAnalyzedAssets(parsed) };
@@ -1909,9 +1932,11 @@ function normalizeAnalyzedAssets(parsed = {}) {
 
 // 资产复核（第二遍）：用快速便宜的文字模型（ASSET_VERIFY_MODEL 可覆盖，默认 deepseek-v4-flash，
 // 不可用时自动退回主模型）通读剧本，跳过已识别的资产，只找第一遍漏掉的对象。
-async function callAssetVerifyLLM({ script, llm, found }) {
+async function callAssetVerifyLLM({ script, llm, verifyLlm = null, found }) {
   const config = resolveLlmConfig(llm);
   if (!config.apiKey) return null;
+  // 用户在设置里指定了复核模型实例 → 完全按该实例调用（baseUrl/Key/模型）。
+  const chosen = (verifyLlm && verifyLlm.apiKey) ? resolveLlmConfig(verifyLlm) : null;
   const mkPayload = (model) => {
     const payload = {
       model,
@@ -1919,7 +1944,7 @@ async function callAssetVerifyLLM({ script, llm, found }) {
         {
           role: 'system',
           content: `你是剧本资产复核员。已有一份第一遍识别出的美术资产清单，你的唯一任务是通读剧本，找出【第一遍漏掉的】角色、场景、关键道具。
-规则：①凡已在清单里的对象（包括同一对象的别名/简称/全称变体）一律跳过，不要重复输出；②只补真正需要制作美术资产的遗漏对象：角色=剧中有戏份的具体人物；场景=故事发生的空间地点；道具=剧情重要、反复出现或有近景特写的物件；③宁缺毋滥，不确定的不补；④没有任何遗漏就输出三个空数组。
+规则：①凡已在清单里的对象（包括同一对象的别名/简称/全称变体）一律跳过，不要重复输出；②只补真正需要制作美术资产的遗漏对象：角色=剧中有戏份的具体人物；场景=故事发生的空间地点；道具=剧情重要、反复出现或有近景特写的物件；③宁缺毋滥，不确定的不补；④没有任何遗漏就输出三个空数组；⑤补充的每个角色都必须给出出镜年龄（age 字段不得留空）：剧本写明的直接采用，未写明的结合身份、称谓、职务、剧情关系推算出具体数字或紧凑区间（如 "28" 或 "25-30"）。
 只输出一个 JSON 对象：{"characters":[{"name":"","age":""}],"scenes":[{"name":"","description":""}],"props":[{"name":""}]}，不要解释、不要代码块。`
         },
         { role: 'user', content: `【已识别清单】\n${JSON.stringify(found)}\n\n【剧本】\n${String(script || '').slice(0, 100000)}` }
@@ -1930,15 +1955,19 @@ async function callAssetVerifyLLM({ script, llm, found }) {
     if ((process.env.LLM_JSON_MODE || 'true') !== 'false') payload.response_format = { type: 'json_object' };
     return payload;
   };
-  const verifyModel = process.env.ASSET_VERIFY_MODEL || 'deepseek-v4-flash';
   let data;
-  try {
-    data = await chatCompletion(config, mkPayload(verifyModel));
-  } catch (error) {
-    console.warn(`Verify model ${verifyModel} unavailable (${String(error.message).slice(0, 120)}), retrying with ${config.model}`);
-    data = await chatCompletion(config, mkPayload(config.model));
+  if (chosen) {
+    data = await chatCompletion(chosen, mkPayload(chosen.model));
+  } else {
+    const verifyModel = process.env.ASSET_VERIFY_MODEL || 'deepseek-v4-flash';
+    try {
+      data = await chatCompletion(config, mkPayload(verifyModel));
+    } catch (error) {
+      console.warn(`Verify model ${verifyModel} unavailable (${String(error.message).slice(0, 120)}), retrying with ${config.model}`);
+      data = await chatCompletion(config, mkPayload(config.model));
+    }
   }
-  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  const content = stripMarkdownFence(extractMessageText(data));
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = {}; }
   return normalizeAnalyzedAssets(parsed);
@@ -1970,7 +1999,7 @@ ${String(skill || '').slice(0, 16000)}`
     max_tokens: Number(process.env.LLM_MAX_TOKENS) || 4000
   };
   const data = await chatCompletion(config, payload);
-  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '').trim();
+  const content = stripMarkdownFence(extractMessageText(data)).trim();
   return { provider: config.providerName, model: config.model, prompt: content };
 }
 
@@ -2037,7 +2066,7 @@ app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
   try {
     const project = projects.get(req.params.projectId);
     if (!project) return res.status(404).json({ error: '项目不存在，请重新上传剧本。' });
-    const { llm = {} } = req.body;
+    const { llm = {}, verifyLlm = null } = req.body;
     const llmConfig = resolveLlmConfig(llm);
     const jobId = createJob();
     res.json({ jobId, status: 'pending' });
@@ -2064,6 +2093,7 @@ app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
             extra = await callAssetVerifyLLM({
               script: project.originalScript,
               llm,
+              verifyLlm,
               found: {
                 characters: result.characters.map((c) => c.name),
                 scenes: result.scenes.map((s) => s.name),
