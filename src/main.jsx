@@ -157,6 +157,23 @@ function App() {
     const inst = (modelStore.llm || []).find((i) => i.name === name);
     if (inst && inst.apiKey) setLlm((l) => ({ ...l, providerId: 'custom', baseUrl: inst.baseUrl, apiKey: inst.apiKey, model: inst.model }));
   }
+  // 打开项目时，若分析/图像模型指向不存在的实例（如旧默认「Doubao 2.0」），自动切到用户已配置的实例：
+  // 分析优先名含 gpt-5.5 的，图像优先名含 gpt-image 的，否则各取第一个。
+  const modelDefaultsAppliedRef = React.useRef('');
+  useEffect(() => {
+    if (!project?.id || modelDefaultsAppliedRef.current === project.id) return;
+    const llmNames = instanceNames('llm');
+    const imgNames = instanceNames('image');
+    const patch = {};
+    if (llmNames.length && !llmNames.includes(project?.models?.analysis)) {
+      patch.analysis = llmNames.find((n) => /gpt.?5\.?5/i.test(n)) || llmNames[0];
+    }
+    if (imgNames.length && !imgNames.includes(project?.models?.image)) {
+      patch.image = imgNames.find((n) => /gpt.?image/i.test(n)) || imgNames[0];
+    }
+    modelDefaultsAppliedRef.current = project.id;
+    if (Object.keys(patch).length) saveProjectMeta({ models: { ...(project?.models || {}), ...patch } });
+  }, [project?.id, modelStore]);
   // 打开项目 / 载入实例后，自动把「分析模型」实例同步为本次生成用的 llm（否则会落回默认 OpenAI，导致剧本/资产调用打到 openai.com 而 fetch failed）。
   useEffect(() => {
     const inst = (modelStore.llm || []).find((i) => i.name === project?.models?.analysis);
@@ -455,7 +472,8 @@ function App() {
     const cl = characterLook === '自定义' ? characterLookCustom : characterLook;
     const wv = worldview === '自定义' ? worldviewCustom : worldview;
     return runJob(`${API}/projects/${project.id}/assets/generate`,
-      { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone, characterLook: cl, worldview: wv });
+      { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone, characterLook: cl, worldview: wv },
+      { maxWaitMs: 1200000 }); // 批次多+重试时可能较久，轮询上限放宽到 20 分钟
   }
 
   function imageInstance() {
@@ -577,7 +595,9 @@ function App() {
     setLoading('asset-analyze');
     setNotice('');
     try {
-      const data = await runJob(`${API}/projects/${project.id}/assets/analyze`, { llm });
+      const vInst = (modelStore.llm || []).find((i) => i.name === project?.models?.verify);
+      const verifyLlm = (vInst && vInst.apiKey) ? { providerId: 'custom', baseUrl: vInst.baseUrl, apiKey: vInst.apiKey, model: vInst.model } : null;
+      const data = await runJob(`${API}/projects/${project.id}/assets/analyze`, { llm, verifyLlm });
       if (data.usedFallback || !data.bible) {
         setNotice(`智能识别失败：${mapLlmError(data.llmError)}。已保留原识别结果。`);
         return;
@@ -1074,6 +1094,12 @@ function App() {
             {instanceNames('llm').map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
+        <label className="pc-field"><span>复核模型</span>
+          <select value={project?.models?.verify || ''} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), verify: e.target.value } })}>
+            <option value="">自动（默认 deepseek-v4-flash）</option>
+            {instanceNames('llm').map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
         <label className="pc-field"><span>图像模型</span>
           <select value={project?.models?.image || ''} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), image: e.target.value } })}>
             {instanceNames('image').length === 0 && <option value="">未配置 · 去模型设置添加</option>}
@@ -1082,10 +1108,8 @@ function App() {
           </select>
         </label>
         <label className="pc-field"><span>视频模型</span>
-          <select value={project?.models?.video || ''} onChange={(e) => saveProjectMeta({ models: { ...(project?.models || {}), video: e.target.value } })}>
-            {instanceNames('video').length === 0 && <option value="">未配置 · 去模型设置添加</option>}
-            {project?.models?.video && !instanceNames('video').includes(project.models.video) && <option value={project.models.video}>{project.models.video}（未接实例）</option>}
-            {instanceNames('video').map((m) => <option key={m} value={m}>{m}</option>)}
+          <select value="" disabled title="视频模型能力暂未开放">
+            <option value="">暂未开放</option>
           </select>
         </label>
         <button className="link-btn pc-settings" onClick={() => setView('settings')}><Settings size={13} />管理模型实例</button>
