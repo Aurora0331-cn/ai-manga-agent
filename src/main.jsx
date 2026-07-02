@@ -568,6 +568,25 @@ function App() {
     return url;
   }
 
+  // 多状态场景一键出图：先日景（第一个状态），再依次以日景为参考出其余时段。
+  async function generateAllSceneStates(name) {
+    const raw = assetItems[assetKey('scenes', name)] || '';
+    const sp = parseCharacterOutfits(raw);
+    if (!sp.outfits.length) return;
+    const first = sp.outfits[0];
+    let baseUrl0 = assetImages[imgKey('scenes', name, first.name)];
+    if (!baseUrl0) {
+      setNotice(`正在生成「${name}_${first.name}」…`);
+      baseUrl0 = await generateSceneStateImage(name, first, '');
+      if (!baseUrl0) return;
+    }
+    for (let i = 1; i < sp.outfits.length; i += 1) {
+      setNotice(`正在以「${first.name}」为参考生成「${sp.outfits[i].name}」…`);
+      await generateSceneStateImage(name, sp.outfits[i], baseUrl0);
+    }
+    setNotice(`「${name}」全部时段已生成。`);
+  }
+
   // 场景 / 道具：单图，无需锁脸。
   async function generateSceneProp(type, name) {
     const prompt = assetItems[assetKey(type, name)];
@@ -1462,9 +1481,18 @@ function App() {
                         {raw && isChar && <button className="secondary" onClick={() => generateBaseFace(assetView.name)} disabled={isImgBusy(`base|${assetView.name}`)} title="先出 1:1 基准大头照，后续造型以它锁脸">
                           {isImgBusy(`base|${assetView.name}`) ? <RefreshCw className="spin" size={14} /> : <Users size={14} />}{baseFaces[assetView.name] ? '重出基准脸' : '生成基准脸'}
                         </button>}
-                        {raw && <button className="secondary" onClick={() => isChar ? generateAllOutfits(assetView.name) : generateSceneProp(assetView.type, assetView.name)}>
-                          <Play size={14} />{isChar ? '生成全部造型' : '生成图像'}
-                        </button>}
+                        {raw && (() => {
+                          const isMultiScene = assetView.type === 'scenes' && /(^|\n)####\s/.test(raw);
+                          return (
+                            <button className="secondary" onClick={() => isChar
+                              ? generateAllOutfits(assetView.name)
+                              : isMultiScene
+                                ? generateAllSceneStates(assetView.name)
+                                : generateSceneProp(assetView.type, assetView.name)}>
+                              <Play size={14} />{isChar ? '生成全部造型' : isMultiScene ? '生成全部时段' : '生成图像'}
+                            </button>
+                          );
+                        })()}
                         <button className="secondary" onClick={() => generateOne(assetView.type, assetView.name)} disabled={loading === `asset-${assetView.type}-${assetView.name}`}>
                           {loading === `asset-${assetView.type}-${assetView.name}` ? <RefreshCw className="spin" size={14} /> : <Sparkles size={14} />}
                           {raw ? '重新生成' : '生成此项'}
@@ -1564,7 +1592,7 @@ function App() {
                             return (
                               <div key={i} className="outfit-block">
                                 <div className="outfit-block-head">
-                                  <span className="outfit-name">{o.name}{i === 0 ? '（基准）' : ''}</span>
+                                  <span className="outfit-name">{o.name}</span>
                                   <div className="outfit-actions">
                                     <button className="secondary" onClick={() => copyText(o.prompt, '已复制该状态提示词。')}><Copy size={13} />复制</button>
                                     <button className="secondary" disabled={sBusy} title={i === 0 ? '直接文生图' : '以基准态图为参考锁定空间结构出图'}
