@@ -473,7 +473,10 @@ function App() {
     const wv = worldview === '自定义' ? worldviewCustom : worldview;
     return runJob(`${API}/projects/${project.id}/assets/generate`,
       { assets, settings, llm, skillTemplateId: assetSkillId, ages: assetAges, styleTone, characterLook: cl, worldview: wv },
-      { maxWaitMs: 1200000 }); // 批次多+重试时可能较久，轮询上限放宽到 20 分钟
+      {
+        maxWaitMs: 1200000, // 批次多+重试时可能较久，轮询上限放宽到 20 分钟
+        onProgress: (p) => setNotice(`美术资产生成中：第 ${p.done}/${p.total} 批完成…`)
+      });
   }
 
   function imageInstance() {
@@ -535,7 +538,12 @@ function App() {
     const raw = assetItems[assetKey('characters', name)];
     if (!raw) { setNotice('请先生成该角色提示词（得到面部锚点）再生成基准脸。'); return null; }
     const anchor = parseCharacterOutfits(raw).anchor || raw;
-    const prompt = `原创角色 1:1 胸像特写定妆照，灰色影棚背景，高级商业摄影质感，真人写实风格，只拍头部、肩颈到胸口上方，人物面部占画面主要面积，肩颈自然入镜，不拍到腰部以下。面部设定：${String(anchor).slice(0, 1600)}。表情自然、安静、克制，不夸张、不刻意微笑。明亮通透影棚光，轻微伦勃朗阴影展现骨相结构。真实皮肤纹理、毛孔自然、发丝清晰、五官自然协调、面部结构稳定。不参考任何真实人物、明星、网红或影视角色。负面：明星脸，网红脸，撞脸，塑料皮肤，AI假脸，锥子脸，脸部变形，多人同框，全身照，背景杂乱。`;
+    // 画风必须绑定项目风格提示词，否则一律出成真人写实
+    const styleP = String(project?.stylePrompt || settings.visualStyle || '').trim();
+    const styleClause = styleP
+      ? `【画风（最高优先级，严格执行，禁止偏离为其他画风）】${styleP}。`
+      : '高级商业摄影质感，真人写实风格，真实皮肤纹理、毛孔自然。';
+    const prompt = `原创角色 1:1 胸像特写定妆照，中性纯色背景，只拍头部、肩颈到胸口上方，人物面部占画面主要面积，肩颈自然入镜，不拍到腰部以下。${styleClause}面部设定：${String(anchor).slice(0, 1600)}。表情自然、安静、克制，不夸张、不刻意微笑。明亮通透主光，轻微伦勃朗阴影展现骨相结构，发丝清晰、五官自然协调、面部结构稳定。不参考任何真实人物、明星、网红或影视角色。负面：明星脸，网红脸，撞脸，塑料皮肤，AI假脸，锥子脸，脸部变形，多人同框，全身照，背景杂乱，偏离指定画风。`;
     setNotice('正在生成基准脸（1:1 定妆照），可能 20-60 秒…');
     const url = await runImageJob({ prompt, size: '2048x2048', busyKey: `base|${name}` });
     if (url) { setBaseFaces((m) => ({ ...m, [name]: url })); setNotice('基准脸已生成。后续该角色造型出图会以它为参考锁脸。'); }
@@ -785,6 +793,7 @@ function App() {
       const p = data.project;
       setProject(p);
       setScript(p.originalScript || '');
+      setAssetItems(p.assetItems || {}); // 恢复服务端已持久化的资产提示词（轮询中断也不丢）
       setSettings((s) => ({ ...s, aspectRatio: p.aspectRatio || '9:16', visualStyle: p.stylePrompt || p.style || s.visualStyle }));
       const hasScript = !!(p.originalScript && p.originalScript.trim());
       setStep(1); setS1tab(hasScript ? 'paste' : 'generate');
@@ -1737,7 +1746,7 @@ function parseShots(md = '') {
 
 // 发起生成任务并轮询结果：后端立即返回 jobId，前端每隔几秒查一次。
 // 每个请求都很短，绕开免费托管层对单个长请求约 60 秒的断连限制。
-async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 720000 } = {}) {
+async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 720000, onProgress } = {}) {
   const start = await readJson(await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }));
@@ -1754,6 +1763,7 @@ async function runJob(url, body, { intervalMs = 2500, maxWaitMs = 720000 } = {})
       continue;
     }
     pollFails = 0;
+    if (onProgress && s.progress) { try { onProgress(s.progress); } catch { /* ignore */ } }
     if (s.status === 'done') return s.result;
     if (s.status === 'error') throw new Error(s.error?.message || '生成失败');
   }
