@@ -1690,7 +1690,7 @@ async function callAssetLLM({ skill, project, assets, settings, llm, ages = {}, 
       {
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为短剧/漫剧生成可直接用于 AI 绘画（文生图）的中文资产提示词。
-硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
+硬规则：①只为 user 给出的"被选中资产"生成，不要新增；②每个资产一个 ### 小节；③角色造型与场景比例固定 16:9、道具固定 1:1；④角色提示词只写人物本体（纯白无缝背景，仅呈现角色本体/服装/随身饰品），不写场景、道具、镜头；场景为无人空镜，道具为白底特写；⑤角色年龄一律采用 user 提供的 confirmedAges（出镜年龄），不使用剧本推理年龄；⑥参考风格基调 styleTone 只用于场景，不污染角色与道具；⑦只输出一个 JSON 对象，键为 modules{characters,scenes,props}（不需要 markdown 键），不要代码块、不要解释；⑧【角色多造型，重要】modules.characters 中每个角色用「### 角色名」作小节标题（角色名与被选中资产名完全一致、不加@符号），标题下先写一行「面部锚点（全状态固定）：」锁定该角色脸型/骨相/五官结构/核心视觉记忆点与确认年龄；随后必须依据 globalBible 与剧情主动推算该角色需要的多个造型/状态——凡剧情中存在时间跨度、回忆闪回、身份或处境变化、外观物理变化（受伤/换装/年龄阶段等）导致该角色外观明显不同的，都要各自生成一个造型，用「#### @角色名_状态名」作子标题（状态名取自剧情，如 少年/成年/老年/受伤/旧工装/正装 等），每个造型都是一段完整的中文文生图提示词，且必须采用「角色设定图」版式：右侧为该造型的角色头部清晰特写、左侧为该造型的全身三视图（正面/侧面/背面），纯白无缝背景；显式继承上面的面部锚点、只改服饰妆发配饰，绝不写场景/道具/镜头；每个角色默认 1-4 个造型：外观确实全程一致的才只给 1 个，凡剧情有明显变化就必须给出多个，不得只给一个。⑨角色审美 characterLook（如 东方面孔/西方面孔/混血面孔）决定所有角色的面孔族裔与审美取向，必须体现在每个角色的面部锚点与造型里；⑩世界观架构 worldview（年代/时代背景，如 现代都市/古代古装/民国/未来科幻/武侠仙侠）决定所有角色服饰妆造与场景建筑、道具材质的年代风格，必须贯穿全部资产、统一不跳脱。严格遵循下方 SKILL。
 
 【参考 SKILL（美术资产风格规范）】
 ${skill.slice(0, 24000)}`
@@ -1891,16 +1891,57 @@ async function callAssetAnalyzeLLM({ script, llm }) {
   const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
   let parsed;
   try { parsed = parseLlmJson(content); } catch { parsed = {}; }
+  return { provider: config.providerName, model: config.model, ...normalizeAnalyzedAssets(parsed) };
+}
+
+// 把识别/复核模型返回的 JSON 归一化成 {characters:[{name,age}], scenes:[{name,description}], props:[string]}，三类各自去重。
+function normalizeAnalyzedAssets(parsed = {}) {
   const arr = (v) => (Array.isArray(v) ? v : []);
   const cleanName = (s) => String((s && typeof s === 'object') ? (s.name ?? '') : (s ?? '')).replace(/^@+/, '').replace(/[（(][^）)]*[）)]/g, '').trim();
-  // 角色携带年龄；三类各自独立去重
   const cSeen = new Set();
   const characters = arr(parsed.characters)
     .map((c) => ({ name: cleanName(c), age: String((c && c.age != null) ? c.age : '').trim() }))
     .filter((c) => c.name && !cSeen.has(c.name) && cSeen.add(c.name));
   const sSeen = new Set(); const scenes = arr(parsed.scenes).map((s) => ({ name: cleanName(s), description: String((s && s.description) || '').trim() })).filter((s) => s.name && !sSeen.has(s.name) && sSeen.add(s.name));
   const pSeen = new Set(); const props = arr(parsed.props).map(cleanName).filter((n) => n && !pSeen.has(n) && pSeen.add(n));
-  return { provider: config.providerName, model: config.model, characters, scenes, props };
+  return { characters, scenes, props };
+}
+
+// 资产复核（第二遍）：用快速便宜的文字模型（ASSET_VERIFY_MODEL 可覆盖，默认 deepseek-v4-flash，
+// 不可用时自动退回主模型）通读剧本，跳过已识别的资产，只找第一遍漏掉的对象。
+async function callAssetVerifyLLM({ script, llm, found }) {
+  const config = resolveLlmConfig(llm);
+  if (!config.apiKey) return null;
+  const mkPayload = (model) => {
+    const payload = {
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是剧本资产复核员。已有一份第一遍识别出的美术资产清单，你的唯一任务是通读剧本，找出【第一遍漏掉的】角色、场景、关键道具。
+规则：①凡已在清单里的对象（包括同一对象的别名/简称/全称变体）一律跳过，不要重复输出；②只补真正需要制作美术资产的遗漏对象：角色=剧中有戏份的具体人物；场景=故事发生的空间地点；道具=剧情重要、反复出现或有近景特写的物件；③宁缺毋滥，不确定的不补；④没有任何遗漏就输出三个空数组。
+只输出一个 JSON 对象：{"characters":[{"name":"","age":""}],"scenes":[{"name":"","description":""}],"props":[{"name":""}]}，不要解释、不要代码块。`
+        },
+        { role: 'user', content: `【已识别清单】\n${JSON.stringify(found)}\n\n【剧本】\n${String(script || '').slice(0, 100000)}` }
+      ],
+      temperature: 0.1,
+      max_tokens: Number(process.env.LLM_MAX_TOKENS) || 8000
+    };
+    if ((process.env.LLM_JSON_MODE || 'true') !== 'false') payload.response_format = { type: 'json_object' };
+    return payload;
+  };
+  const verifyModel = process.env.ASSET_VERIFY_MODEL || 'deepseek-v4-flash';
+  let data;
+  try {
+    data = await chatCompletion(config, mkPayload(verifyModel));
+  } catch (error) {
+    console.warn(`Verify model ${verifyModel} unavailable (${String(error.message).slice(0, 120)}), retrying with ${config.model}`);
+    data = await chatCompletion(config, mkPayload(config.model));
+  }
+  const content = stripMarkdownFence(data.choices?.[0]?.message?.content || '');
+  let parsed;
+  try { parsed = parseLlmJson(content); } catch { parsed = {}; }
+  return normalizeAnalyzedAssets(parsed);
 }
 
 // 为已有角色增补一个造型：复用给定的面部锚点，只改服饰发型，输出单段文生图提示词。
@@ -1915,7 +1956,7 @@ async function callOutfitLLM({ skill, character, anchor, outfit, settings, age, 
         role: 'system',
         content: `你是「美术资产提示词生成专家」，为一个已有角色增补一个新造型（换装/换发型/新状态）。硬规则：
 ① 必须完整沿用给定的【面部锚点】——脸型、骨相、五官结构、核心视觉记忆点与年龄完全一致，只改变服饰、妆发、配饰等造型变量，绝不另起一张脸。
-② 比例固定 21:9，纯白无缝背景，仅呈现角色本体、服装与随身饰品；不写场景、道具、镜头、运镜。
+② 比例固定 16:9，「角色设定图」版式：右侧为该造型的角色头部清晰特写，左侧为该造型的全身三视图（正面/侧面/背面），纯白无缝背景，仅呈现角色本体、服装与随身饰品；不写场景、道具、镜头、运镜。
 ③ 只输出该造型的一段中文文生图提示词正文，不要 JSON、不要标题、不要解释、不要代码块。
 ④ 中文句末之后原样附加固定英文尾缀【Remove the noise and high-frequency details from the image. Keep all the lines, colors, and brightness unchanged.】。
 请遵循下方 SKILL 的风格与质感规范。
@@ -2013,6 +2054,37 @@ app.post('/api/projects/:projectId/assets/analyze', async (req, res, next) => {
       } catch (error) {
         if (!llmError) llmError = parseLlmError(error.message);
         console.warn(`Asset analyze fell back: ${error.message}`);
+      }
+      // 二次复核：单次识别数量有随机性。用便宜快速模型只找"第一遍漏掉的"资产并增补；
+      // 直到某一轮零新增（=检验通过，清单完整）或最多补 2 轮，再返回前端。
+      if (result) {
+        for (let round = 1; round <= 2; round += 1) {
+          let extra = null;
+          try {
+            extra = await callAssetVerifyLLM({
+              script: project.originalScript,
+              llm,
+              found: {
+                characters: result.characters.map((c) => c.name),
+                scenes: result.scenes.map((s) => s.name),
+                props: result.props
+              }
+            });
+          } catch (error) {
+            console.warn(`Asset verify round ${round} failed: ${error.message}`);
+            break;
+          }
+          if (!extra) break;
+          const has = (names, name) => names.some((n) => normalizeAssetName(n) === normalizeAssetName(name));
+          const addC = extra.characters.filter((c) => !has(result.characters.map((x) => x.name), c.name));
+          const addS = extra.scenes.filter((s) => !has(result.scenes.map((x) => x.name), s.name));
+          const addP = extra.props.filter((p) => !has(result.props, p));
+          if (!addC.length && !addS.length && !addP.length) break; // 复核通过：无遗漏
+          console.info(`Asset verify round ${round} added c:${addC.length} s:${addS.length} p:${addP.length}`);
+          result.characters.push(...addC);
+          result.scenes.push(...addS);
+          result.props.push(...addP);
+        }
       }
       const ages = {};
       if (result && (result.characters.length || result.scenes.length || result.props.length)) {
